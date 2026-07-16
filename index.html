@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CMYK Hatch Split</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/cropperjs@1.6.2/dist/cropper.min.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>CMYK Hatch Split</h1>
+  <p class="subtitle">Upload a photo to split it into Cyan, Magenta, Yellow and Key (black) plates, each shaded with hand-hatched or scribbled line work instead of dots.</p>
+</header>
+
+<section id="drop-zone">
+  <input type="file" id="file-input" accept=".jpg,.jpeg,.png,.heic,.heif,image/jpeg,image/png,image/heic,image/heif" hidden>
+  <button id="choose-btn">Choose a photo</button>
+  <p>or drag &amp; drop a JPEG, PNG, or HEIC file here</p>
+</section>
+
+<section id="crop-wrap" class="hidden">
+  <h2>Crop</h2>
+  <div id="crop-container">
+    <img id="crop-image" alt="">
+  </div>
+  <div class="crop-actions">
+    <button id="confirm-crop-btn">Use this crop</button>
+    <button id="cancel-crop-btn" class="secondary">Cancel</button>
+  </div>
+</section>
+
+<div id="top-row">
+  <section id="original-wrap" class="hidden">
+    <h2>Original</h2>
+    <canvas id="original-canvas"></canvas>
+  </section>
+
+  <section id="combined-wrap" class="hidden">
+    <h2>Combined</h2>
+    <canvas id="combined-canvas"></canvas>
+    <div id="combined-controls">
+      <div class="slider-row">
+        <label for="combined-opacity-slider">Opacity</label>
+        <input type="range" id="combined-opacity-slider" min="0" max="100" value="50">
+        <span class="value-unit-group">
+          <input type="number" class="value-input" id="combined-opacity-value" value="50" min="0" max="100" step="1" inputmode="numeric">
+          <span class="unit">%</span>
+        </span>
+      </div>
+      <div class="slider-row">
+        <label for="combined-cyan-color">Cyan Color</label>
+        <input type="color" id="combined-cyan-color" value="#00adef">
+      </div>
+      <div class="slider-row">
+        <label for="combined-magenta-color">Magenta Color</label>
+        <input type="color" id="combined-magenta-color" value="#ec008c">
+      </div>
+      <div class="slider-row">
+        <label for="combined-yellow-color">Yellow Color</label>
+        <input type="color" id="combined-yellow-color" value="#fff100">
+      </div>
+      <div class="slider-row">
+        <label for="combined-key-color">Key Color</label>
+        <input type="color" id="combined-key-color" value="#231f20">
+      </div>
+    </div>
+  </section>
+</div>
+
+<section id="channels" class="hidden">
+  <div id="render-controls">
+    <div class="ctrl">
+      <label>Mode</label>
+      <div class="mode-toggle" role="group" aria-label="Render style">
+        <button class="mode-btn active" data-mode="continuous">Continuous</button>
+        <button class="mode-btn" data-mode="single">Single Line</button>
+        <button class="mode-btn" data-mode="hatch">Hatch Lines</button>
+        <button class="mode-btn" data-mode="microprint">Microprint</button>
+      </div>
+    </div>
+
+    <div id="single-controls" class="hidden">
+      <div class="ctrl">
+        <label>Scribble Density <b id="density-val"></b></label>
+        <input type="range" id="density-slider" min="200" max="80000" value="3000" step="100">
+        <div class="hint">Points per channel. Dark areas in that channel's ink map pull in more points, so they get denser scribble.</div>
+      </div>
+    </div>
+
+    <div id="flow-direction-controls" class="hidden">
+      <div class="ctrl">
+        <label>Stroke Direction</label>
+        <div class="mode-toggle">
+          <button type="button" id="dir-fixed-btn" class="mode-btn active">Fixed Angle</button>
+          <button type="button" id="dir-parallel-lines-btn" class="mode-btn">Parallel Lines</button>
+          <button type="button" id="dir-organic-btn" class="mode-btn">Organic Flow</button>
+          <button type="button" id="dir-parallel-btn" class="mode-btn">Parallel Flow</button>
+        </div>
+        <div class="hint">Fixed/Organic bend toward the photo's edges (Hatch also crosshatches dark areas with these two — Microprint never crosshatches, to keep the text legible). Parallel Lines/Parallel Flow can be locked rigid. Each channel's angle is offset by the classic C/M/Y/K screen angles (15&deg;/75&deg;/0&deg;/45&deg;) so the four plates don't moir&eacute; against each other when combined.</div>
+      </div>
+
+      <div class="ctrl" id="direction-angle-ctrl">
+        <label>Direction <b id="direction-val"></b></label>
+        <input type="range" id="direction-slider" min="0" max="179" value="35">
+      </div>
+
+      <div class="ctrl hidden" id="parallel-rigidity-ctrl">
+        <label>Parallel Rigidity <b id="parallel-rigidity-val"></b></label>
+        <input type="range" id="parallel-rigidity-slider" min="0" max="100" value="90">
+      </div>
+
+      <div class="ctrl hidden" id="flow-rigidity-ctrl">
+        <label>Flow Rigidity <b id="flow-rigidity-val"></b></label>
+        <input type="range" id="flow-rigidity-slider" min="4" max="60" value="18">
+      </div>
+    </div>
+
+    <div id="hatch-controls" class="hidden">
+      <div class="ctrl">
+        <label>Hatch Density <b id="hatch-density-val"></b></label>
+        <input type="range" id="hatch-density-slider" min="100" max="40000" value="1800" step="100">
+        <div class="hint">Strokes per channel. Dark areas gain a second crossing stroke for true crosshatch shading.</div>
+      </div>
+      <div class="ctrl">
+        <label>Stroke Length <b id="stroke-len-val"></b></label>
+        <input type="range" id="stroke-len-slider" min="6" max="50" value="16">
+      </div>
+      <div class="ctrl">
+        <label>Length Randomness <b id="length-rand-val"></b></label>
+        <input type="range" id="length-rand-slider" min="0" max="100" value="40" step="5">
+      </div>
+    </div>
+
+    <div id="microprint-controls" class="hidden">
+      <div class="ctrl" style="flex-basis: 100%;">
+        <label>Repeating Text</label>
+        <input type="text" id="microprint-text" class="text-input" value="MICROPRINT" maxlength="24" autocomplete="off">
+        <div class="hint">Characters repeated along each flowing path, like the microprinted lines on currency. Darker areas in a channel get more overlapping paths of text.</div>
+      </div>
+      <div class="ctrl">
+        <label>Path Density <b id="microprint-density-val"></b></label>
+        <input type="range" id="microprint-density-slider" min="20" max="2000" value="250" step="10">
+      </div>
+      <div class="ctrl">
+        <label>Path Length <b id="microprint-length-val"></b></label>
+        <input type="range" id="microprint-length-slider" min="20" max="300" value="140" step="5">
+      </div>
+      <div class="ctrl">
+        <label>Character Size <b id="char-size-val"></b></label>
+        <input type="range" id="char-size-slider" min="4" max="20" value="8">
+      </div>
+      <div class="ctrl">
+        <label>Character Spacing <b id="char-spacing-val"></b></label>
+        <input type="range" id="char-spacing-slider" min="50" max="200" value="100" step="5">
+      </div>
+    </div>
+
+    <div id="line-shared-controls" class="hidden">
+      <div class="ctrl">
+        <label>Shading Contrast <b id="contrast-val"></b></label>
+        <input type="range" id="contrast-slider" min="10" max="800" value="130">
+      </div>
+      <div class="ctrl">
+        <label>Exposure <b id="exposure-val"></b></label>
+        <input type="range" id="exposure-slider" min="-100" max="100" value="0">
+        <div class="hint">Brightens or darkens the source photo before it's split into channels.</div>
+      </div>
+      <div class="ctrl">
+        <label>Saturation <b id="saturation-val"></b></label>
+        <input type="range" id="saturation-slider" min="0" max="200" value="100">
+        <div class="hint">0% is grayscale; over 100% pushes colors more toward pure C/M/Y/K.</div>
+      </div>
+      <div class="ctrl" id="weight-ctrl">
+        <label>Line Weight <b id="weight-val"></b></label>
+        <input type="range" id="weight-slider" min="5" max="30" value="9">
+      </div>
+    </div>
+  </div>
+
+  <div class="channel-card" data-channel="c">
+    <h3>Cyan</h3>
+    <canvas></canvas>
+    <div class="ctrl channel-density-row hidden">
+      <label>Density <b class="channel-density-val">100%</b></label>
+      <input type="range" class="channel-density-slider" min="20" max="250" value="100" step="5">
+      <div class="channel-line-count">0 lines</div>
+    </div>
+    <div class="download-row">
+      <button class="download-btn" data-format="png">PNG</button>
+      <button class="download-btn" data-format="svg">SVG</button>
+      <button class="download-btn" data-format="dxf">DXF</button>
+    </div>
+  </div>
+  <div class="channel-card" data-channel="m">
+    <h3>Magenta</h3>
+    <canvas></canvas>
+    <div class="ctrl channel-density-row hidden">
+      <label>Density <b class="channel-density-val">100%</b></label>
+      <input type="range" class="channel-density-slider" min="20" max="250" value="100" step="5">
+      <div class="channel-line-count">0 lines</div>
+    </div>
+    <div class="download-row">
+      <button class="download-btn" data-format="png">PNG</button>
+      <button class="download-btn" data-format="svg">SVG</button>
+      <button class="download-btn" data-format="dxf">DXF</button>
+    </div>
+  </div>
+  <div class="channel-card" data-channel="y">
+    <h3>Yellow</h3>
+    <canvas></canvas>
+    <div class="ctrl channel-density-row hidden">
+      <label>Density <b class="channel-density-val">100%</b></label>
+      <input type="range" class="channel-density-slider" min="20" max="250" value="100" step="5">
+      <div class="channel-line-count">0 lines</div>
+    </div>
+    <div class="download-row">
+      <button class="download-btn" data-format="png">PNG</button>
+      <button class="download-btn" data-format="svg">SVG</button>
+      <button class="download-btn" data-format="dxf">DXF</button>
+    </div>
+  </div>
+  <div class="channel-card" data-channel="k">
+    <h3>Key (Black)</h3>
+    <canvas></canvas>
+    <div class="ctrl channel-density-row hidden">
+      <label>Density <b class="channel-density-val">100%</b></label>
+      <input type="range" class="channel-density-slider" min="20" max="250" value="100" step="5">
+      <div class="channel-line-count">0 lines</div>
+    </div>
+    <div class="download-row">
+      <button class="download-btn" data-format="png">PNG</button>
+      <button class="download-btn" data-format="svg">SVG</button>
+      <button class="download-btn" data-format="dxf">DXF</button>
+    </div>
+  </div>
+</section>
+
+<p id="status"></p>
+
+<div id="zoom-modal" class="hidden" role="dialog" aria-modal="true">
+  <div id="zoom-header">
+    <span id="zoom-title"></span>
+    <button id="zoom-close" class="secondary">Close</button>
+  </div>
+  <button id="zoom-prev" class="zoom-nav" aria-label="Previous channel">&#8249;</button>
+  <button id="zoom-next" class="zoom-nav" aria-label="Next channel">&#8250;</button>
+  <div id="zoom-viewport">
+    <img id="zoom-image" alt="">
+  </div>
+  <p id="zoom-hint">Scroll to zoom &middot; drag to pan &middot; double-click to reset &middot; &#8592;/&#8594; to switch channel</p>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/cropperjs@1.6.2/dist/cropper.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
