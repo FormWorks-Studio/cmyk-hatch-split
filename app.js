@@ -13,9 +13,9 @@
   const CHANNEL_FILE_NAMES = { c: 'cyan', m: 'magenta', y: 'yellow', k: 'black' };
   const CHANNEL_ORDER = ['c', 'm', 'y', 'k'];
   const CHANNEL_COLORS = { c: [0, 173, 239], m: [236, 0, 140], y: [255, 241, 0], k: [35, 31, 32] };
-  // Classic print screen angles, reused here as a per-channel hatch-direction
-  // offset so the four plates don't moiré against each other when combined.
-  const CHANNEL_ANGLE_OFFSET = { c: 15, m: 75, y: 0, k: 45 };
+  // Per-channel screen angles, reused here as a hatch-direction offset so
+  // the four plates don't moiré against each other when combined.
+  const CHANNEL_ANGLE_OFFSET = { c: 105, m: 75, y: 90, k: 15 };
 
   // ── DOM refs ──────────────────────────────────────────────
   const fileInput = document.getElementById('file-input');
