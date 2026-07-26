@@ -70,6 +70,63 @@
 </div>
 
 <section id="channels" class="hidden">
+  <div class="channel-card" data-channel="c">
+    <h3>Cyan</h3>
+    <canvas></canvas>
+    <div class="ctrl channel-density-row hidden">
+      <label>Density <b class="channel-density-val">100%</b></label>
+      <input type="range" class="channel-density-slider" min="20" max="250" value="100" step="5">
+      <div class="channel-line-count">0 lines</div>
+    </div>
+    <div class="download-row">
+      <button class="download-btn" data-format="png">PNG</button>
+      <button class="download-btn" data-format="svg">SVG</button>
+      <button class="download-btn" data-format="dxf">DXF</button>
+    </div>
+  </div>
+  <div class="channel-card" data-channel="m">
+    <h3>Magenta</h3>
+    <canvas></canvas>
+    <div class="ctrl channel-density-row hidden">
+      <label>Density <b class="channel-density-val">100%</b></label>
+      <input type="range" class="channel-density-slider" min="20" max="250" value="100" step="5">
+      <div class="channel-line-count">0 lines</div>
+    </div>
+    <div class="download-row">
+      <button class="download-btn" data-format="png">PNG</button>
+      <button class="download-btn" data-format="svg">SVG</button>
+      <button class="download-btn" data-format="dxf">DXF</button>
+    </div>
+  </div>
+  <div class="channel-card" data-channel="y">
+    <h3>Yellow</h3>
+    <canvas></canvas>
+    <div class="ctrl channel-density-row hidden">
+      <label>Density <b class="channel-density-val">100%</b></label>
+      <input type="range" class="channel-density-slider" min="20" max="250" value="100" step="5">
+      <div class="channel-line-count">0 lines</div>
+    </div>
+    <div class="download-row">
+      <button class="download-btn" data-format="png">PNG</button>
+      <button class="download-btn" data-format="svg">SVG</button>
+      <button class="download-btn" data-format="dxf">DXF</button>
+    </div>
+  </div>
+  <div class="channel-card" data-channel="k">
+    <h3>Key (Black)</h3>
+    <canvas></canvas>
+    <div class="ctrl channel-density-row hidden">
+      <label>Density <b class="channel-density-val">100%</b></label>
+      <input type="range" class="channel-density-slider" min="20" max="250" value="100" step="5">
+      <div class="channel-line-count">0 lines</div>
+    </div>
+    <div class="download-row">
+      <button class="download-btn" data-format="png">PNG</button>
+      <button class="download-btn" data-format="svg">SVG</button>
+      <button class="download-btn" data-format="dxf">DXF</button>
+    </div>
+  </div>
+
   <div id="render-controls">
     <div class="ctrl" id="output-size-ctrl">
       <label>Output Size</label>
@@ -257,63 +314,6 @@
         <label>Line Weight <b id="weight-val"></b></label>
         <input type="range" id="weight-slider" min="5" max="30" value="9">
       </div>
-    </div>
-  </div>
-
-  <div class="channel-card" data-channel="c">
-    <h3>Cyan</h3>
-    <canvas></canvas>
-    <div class="ctrl channel-density-row hidden">
-      <label>Density <b class="channel-density-val">100%</b></label>
-      <input type="range" class="channel-density-slider" min="20" max="250" value="100" step="5">
-      <div class="channel-line-count">0 lines</div>
-    </div>
-    <div class="download-row">
-      <button class="download-btn" data-format="png">PNG</button>
-      <button class="download-btn" data-format="svg">SVG</button>
-      <button class="download-btn" data-format="dxf">DXF</button>
-    </div>
-  </div>
-  <div class="channel-card" data-channel="m">
-    <h3>Magenta</h3>
-    <canvas></canvas>
-    <div class="ctrl channel-density-row hidden">
-      <label>Density <b class="channel-density-val">100%</b></label>
-      <input type="range" class="channel-density-slider" min="20" max="250" value="100" step="5">
-      <div class="channel-line-count">0 lines</div>
-    </div>
-    <div class="download-row">
-      <button class="download-btn" data-format="png">PNG</button>
-      <button class="download-btn" data-format="svg">SVG</button>
-      <button class="download-btn" data-format="dxf">DXF</button>
-    </div>
-  </div>
-  <div class="channel-card" data-channel="y">
-    <h3>Yellow</h3>
-    <canvas></canvas>
-    <div class="ctrl channel-density-row hidden">
-      <label>Density <b class="channel-density-val">100%</b></label>
-      <input type="range" class="channel-density-slider" min="20" max="250" value="100" step="5">
-      <div class="channel-line-count">0 lines</div>
-    </div>
-    <div class="download-row">
-      <button class="download-btn" data-format="png">PNG</button>
-      <button class="download-btn" data-format="svg">SVG</button>
-      <button class="download-btn" data-format="dxf">DXF</button>
-    </div>
-  </div>
-  <div class="channel-card" data-channel="k">
-    <h3>Key (Black)</h3>
-    <canvas></canvas>
-    <div class="ctrl channel-density-row hidden">
-      <label>Density <b class="channel-density-val">100%</b></label>
-      <input type="range" class="channel-density-slider" min="20" max="250" value="100" step="5">
-      <div class="channel-line-count">0 lines</div>
-    </div>
-    <div class="download-row">
-      <button class="download-btn" data-format="png">PNG</button>
-      <button class="download-btn" data-format="svg">SVG</button>
-      <button class="download-btn" data-format="dxf">DXF</button>
     </div>
   </div>
 </section>

@@ -97,7 +97,7 @@ button:disabled {
   justify-content: center;
   align-items: start;
   gap: 24px;
-  max-width: 1600px;
+  max-width: 1200px;
   width: 100%;
   margin: 0 auto 32px;
 }
@@ -106,7 +106,7 @@ button:disabled {
 #combined-wrap {
   flex: 1 1 0;
   min-width: 320px;
-  max-width: none;
+  max-width: 590px;
   margin: 0;
   text-align: center;
 }
