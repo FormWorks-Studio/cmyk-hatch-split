@@ -31,7 +31,8 @@
   </div>
 </section>
 
-<div id="top-row">
+<section id="channels" class="hidden">
+  <div id="col-preview">
   <section id="original-wrap" class="hidden">
     <h2>Original</h2>
     <canvas id="original-canvas"></canvas>
@@ -67,9 +68,9 @@
       </div>
     </div>
   </section>
-</div>
+  </div>
 
-<section id="channels" class="hidden">
+  <div id="col-controls">
   <div id="render-controls">
     <div class="ctrl" id="output-size-ctrl">
       <label>Output Size</label>
@@ -259,7 +260,9 @@
       </div>
     </div>
   </div>
+  </div>
 
+  <div id="col-channels">
   <div class="channel-card" data-channel="c">
     <h3>Cyan</h3>
     <canvas></canvas>
@@ -315,6 +318,7 @@
       <button class="download-btn" data-format="svg">SVG</button>
       <button class="download-btn" data-format="dxf">DXF</button>
     </div>
+  </div>
   </div>
 </section>
 

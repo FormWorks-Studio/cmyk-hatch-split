@@ -91,32 +91,39 @@ button:disabled {
   margin-top: 16px;
 }
 
-#top-row {
+/* ── Workspace: preview (left) / channels (middle) / controls (right), ── */
+/* ── side by side so adjustments and their results are visible at once. ── */
+#channels {
   display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  align-items: start;
-  gap: 24px;
-  max-width: 1040px;
-  margin: 0 auto 32px;
+  align-items: flex-start;
+  gap: 20px;
+  max-width: 1900px;
+  margin: 0 auto;
 }
+
+/* DOM order is preview, controls, channels (controls sits right after the
+   preview markup in the document); `order` puts channels visually in the
+   middle without having to move that markup. Each column scrolls on its
+   own once it's taller than the viewport, so a tall controls panel never
+   pushes the shorter preview/channel columns out of view. */
+#col-preview, #col-channels, #col-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  max-height: calc(100vh - 170px);
+  overflow-y: auto;
+  padding-right: 6px;
+}
+#col-preview { order: 1; flex: 1.1 1 380px; min-width: 320px; }
+#col-channels { order: 2; flex: 0 1 300px; min-width: 240px; }
+#col-controls { order: 3; flex: 1.2 1 420px; min-width: 360px; }
 
 #original-wrap,
 #combined-wrap {
-  flex: 1 1 420px;
-  max-width: 480px;
   margin: 0;
   text-align: center;
 }
 #original-wrap h2 { font-size: 16px; color: var(--muted); margin: 0 0 10px; }
-
-#channels {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 20px;
-  max-width: 1200px;
-  margin: 0 auto;
-}
 
 .channel-card {
   background: var(--panel);
@@ -149,7 +156,6 @@ button:disabled {
 
 /* ── Render controls panel ─────────────────────────────────── */
 #render-controls {
-  grid-column: 1 / -1;
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -445,6 +451,21 @@ canvas {
   color: var(--muted);
   font-size: 12px;
   margin-top: 12px;
+}
+
+/* Below this width there isn't room for 3 columns side by side — fall back
+   to the original stacked, page-scrolls layout. */
+@media (max-width: 1100px) {
+  #channels { flex-direction: column; }
+  #col-preview, #col-channels, #col-controls {
+    max-height: none;
+    overflow-y: visible;
+    order: 0;
+    flex: none;
+    width: 100%;
+    min-width: 0;
+    padding-right: 0;
+  }
 }
 
 @media (max-width: 700px) {
