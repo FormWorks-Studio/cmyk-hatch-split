@@ -50,8 +50,19 @@
 
   const densitySlider = document.getElementById('density-slider');
   const densityVal = document.getElementById('density-val');
+  const scribbleDensityCtrl = document.getElementById('scribble-density-ctrl');
   const hatchDensitySlider = document.getElementById('hatch-density-slider');
   const hatchDensityVal = document.getElementById('hatch-density-val');
+
+  const pathStyleScatterBtn = document.getElementById('path-style-scatter-btn');
+  const pathStyleSpiralBtn = document.getElementById('path-style-spiral-btn');
+  const spiralControls = document.getElementById('spiral-controls');
+  const spiralSpacingSlider = document.getElementById('spiral-spacing-slider');
+  const spiralSpacingVal = document.getElementById('spiral-spacing-val');
+  const spiralWobbleFreqSlider = document.getElementById('spiral-wobble-freq-slider');
+  const spiralWobbleFreqVal = document.getElementById('spiral-wobble-freq-val');
+  const spiralWobbleAmountSlider = document.getElementById('spiral-wobble-amount-slider');
+  const spiralWobbleAmountVal = document.getElementById('spiral-wobble-amount-val');
 
   const microprintTextInput = document.getElementById('microprint-text');
   const microprintDensitySlider = document.getElementById('microprint-density-slider');
@@ -177,8 +188,9 @@
   };
   let cachedSatWeights = null; // saturation field, built once per image, shared by all 4 channels
   let renderMode = 'continuous'; // 'continuous' | 'single' | 'hatch' | 'microprint'
-  let directionMode = 'fixed';   // 'fixed' | 'parallelLines' | 'organic' | 'parallel'
+  let directionMode = 'fixed';   // 'fixed' | 'parallelLines' | 'organic' | 'parallel' | 'adaptive'
   let hatchPattern = 'straight'; // 'straight' | 'crossgrid' | 'contour' | 'stipple' | 'zigzag' | 'truchet'
+  let singlePathStyle = 'scatter'; // 'scatter' | 'spiral' — Single Line mode's path strategy
   let srcW = 0, srcH = 0;
   let sourceFileName = 'photo';
 
@@ -564,6 +576,37 @@
     }
 
     return order.map(i => points[i]);
+  }
+
+  // ── Single continuous spiral: an Archimedean spiral from center to edge
+  // that wobbles in proportion to local darkness — a very different look
+  // from the point-cloud Scatter style, but still one unbroken line.
+  function generateSpiralPath(darkness, cols, rows, w, h, spacing, wobbleFreq, wobbleAmount) {
+    const sampleDarkness = (x, y) => {
+      const cx = Math.min(cols - 1, Math.max(0, Math.floor(x / CELL_SIZE)));
+      const cy = Math.min(rows - 1, Math.max(0, Math.floor(y / CELL_SIZE)));
+      return darkness[cy * cols + cx];
+    };
+
+    const cx0 = w / 2, cy0 = h / 2;
+    const maxRadius = Math.hypot(w, h) / 2 + spacing;
+    const turnRate = spacing / (2 * Math.PI); // radius gained per radian
+    const stepArc = 2; // px of arc length per sampled point
+
+    const points = [];
+    let theta = 0;
+    while (true) {
+      const r = turnRate * theta;
+      if (r > maxRadius) break;
+      const baseX = cx0 + r * Math.cos(theta);
+      const baseY = cy0 + r * Math.sin(theta);
+      const d = sampleDarkness(baseX, baseY);
+      const wobble = d * wobbleAmount * (spacing / 2) * Math.sin(theta * wobbleFreq);
+      const rw = Math.max(0, r + wobble);
+      points.push([cx0 + rw * Math.cos(theta), cy0 + rw * Math.sin(theta)]);
+      theta += stepArc / Math.max(r, spacing * 0.15);
+    }
+    return points;
   }
 
   // ── Gradient field over the darkness grid, smoothed for large-scale form ──
@@ -1137,6 +1180,13 @@
     const densityMult = channelDensityMult(key);
 
     if (renderMode === 'single') {
+      if (singlePathStyle === 'spiral') {
+        const spacing = Number(spiralSpacingSlider.value);
+        const wobbleFreq = Number(spiralWobbleFreqSlider.value);
+        const wobbleAmount = Number(spiralWobbleAmountSlider.value) / 100;
+        const path = generateSpiralPath(darkness, cols, rows, width, height, spacing, wobbleFreq, wobbleAmount);
+        return { kind: 'lines', items: path.length ? [path] : [] };
+      }
       const targetN = Math.round(Number(densitySlider.value) * densityMult);
       const points = generatePoints(weights, cols, rows, targetN);
       const path = points.length ? buildPath(points, width, height) : [];
@@ -1359,8 +1409,14 @@
   // an actual point/stroke count (Contour uses Levels, Truchet a fixed grid).
   function densityMultApplicable() {
     if (renderMode === 'continuous') return false;
+    if (renderMode === 'single') return singlePathStyle !== 'spiral';
     if (renderMode === 'hatch') return hatchPattern !== 'contour' && hatchPattern !== 'truchet';
     return true;
+  }
+
+  function updateSingleControlVisibility() {
+    scribbleDensityCtrl.classList.toggle('hidden', singlePathStyle === 'spiral');
+    spiralControls.classList.toggle('hidden', singlePathStyle !== 'spiral');
   }
 
   function updateHatchPatternVisibility() {
@@ -1382,6 +1438,7 @@
     hatchControls.classList.toggle('hidden', renderMode !== 'hatch');
     microprintControls.classList.toggle('hidden', renderMode !== 'microprint');
     lineSharedControls.classList.toggle('hidden', renderMode === 'continuous');
+    updateSingleControlVisibility();
     updateHatchPatternVisibility();
   }
 
@@ -1394,6 +1451,17 @@
   patternButtons.forEach(btn => {
     btn.addEventListener('click', () => setHatchPattern(btn.dataset.pattern));
   });
+
+  function setPathStyle(next) {
+    singlePathStyle = next;
+    pathStyleScatterBtn.classList.toggle('active', singlePathStyle === 'scatter');
+    pathStyleSpiralBtn.classList.toggle('active', singlePathStyle === 'spiral');
+    updateSingleControlVisibility();
+    updateHatchPatternVisibility(); // also refreshes the per-channel Density row visibility
+    scheduleRender();
+  }
+  pathStyleScatterBtn.addEventListener('click', () => setPathStyle('scatter'));
+  pathStyleSpiralBtn.addEventListener('click', () => setPathStyle('spiral'));
 
   modeButtons.forEach(btn => {
     btn.addEventListener('click', () => {
@@ -1453,6 +1521,9 @@
     zigzagAmpVal.textContent = Number(zigzagAmpSlider.value) + 'px';
     zigzagFreqVal.textContent = Number(zigzagFreqSlider.value);
     tileSizeVal.textContent = Number(tileSizeSlider.value) + 'px';
+    spiralSpacingVal.textContent = Number(spiralSpacingSlider.value) + 'px';
+    spiralWobbleFreqVal.textContent = Number(spiralWobbleFreqSlider.value);
+    spiralWobbleAmountVal.textContent = Number(spiralWobbleAmountSlider.value) + '%';
   }
 
   const allSliders = [
@@ -1461,6 +1532,7 @@
     microprintLengthSlider, charSizeSlider, charSpacingSlider,
     crossAngleSlider, contourLevelsSlider, stippleDensitySlider, dotSizeSlider, relaxationSlider,
     zigzagAmpSlider, zigzagFreqSlider, tileSizeSlider,
+    spiralSpacingSlider, spiralWobbleFreqSlider, spiralWobbleAmountSlider,
   ];
   allSliders.forEach(el => {
     el.addEventListener('input', () => { updateLabels(); scheduleRender(); });

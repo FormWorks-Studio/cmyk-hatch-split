@@ -160,10 +160,36 @@
     </div>
 
     <div id="single-controls" class="hidden">
-      <div class="ctrl">
+      <div class="ctrl" style="flex-basis: 100%;">
+        <label>Path Style</label>
+        <div class="mode-toggle" role="group" aria-label="Single line path style">
+          <button type="button" id="path-style-scatter-btn" class="mode-btn active" data-path-style="scatter">Scatter</button>
+          <button type="button" id="path-style-spiral-btn" class="mode-btn" data-path-style="spiral">Spiral</button>
+        </div>
+        <div class="hint">Scatter walks a nearest-neighbor tour through darkness-weighted points — one continuous thread of scribble. Spiral instead draws a single Archimedean spiral from center to edge that wobbles in proportion to local darkness — a very different, more graphic look, and still one unbroken line for the plotter.</div>
+      </div>
+
+      <div class="ctrl" id="scribble-density-ctrl">
         <label>Scribble Density <b id="density-val"></b></label>
         <input type="range" id="density-slider" min="200" max="80000" value="3000" step="100">
         <div class="hint">Points per channel. Dark areas in that channel's ink map pull in more points, so they get denser scribble.</div>
+      </div>
+
+      <div id="spiral-controls" class="ctrl-group hidden">
+        <div class="ctrl">
+          <label>Spiral Spacing <b id="spiral-spacing-val"></b></label>
+          <input type="range" id="spiral-spacing-slider" min="2" max="24" value="6">
+          <div class="hint">Distance between spiral arms. Smaller is finer/denser, but slower to render.</div>
+        </div>
+        <div class="ctrl">
+          <label>Wobble Frequency <b id="spiral-wobble-freq-val"></b></label>
+          <input type="range" id="spiral-wobble-freq-slider" min="1" max="40" value="10">
+        </div>
+        <div class="ctrl">
+          <label>Wobble Amount <b id="spiral-wobble-amount-val"></b></label>
+          <input type="range" id="spiral-wobble-amount-slider" min="0" max="100" value="70">
+          <div class="hint">How far dark areas push the spiral off its smooth arc. 0% leaves a plain spiral regardless of the photo.</div>
+        </div>
       </div>
     </div>
 
