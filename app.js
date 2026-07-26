@@ -13,9 +13,12 @@
   const CHANNEL_FILE_NAMES = { c: 'cyan', m: 'magenta', y: 'yellow', k: 'black' };
   const CHANNEL_ORDER = ['c', 'm', 'y', 'k'];
   const CHANNEL_COLORS = { c: [0, 173, 239], m: [236, 0, 140], y: [255, 241, 0], k: [35, 31, 32] };
-  // Per-channel screen angles, reused here as a hatch-direction offset so
-  // the four plates don't moiré against each other when combined.
-  const CHANNEL_ANGLE_OFFSET = { c: 105, m: 75, y: 90, k: 15 };
+  // Classic print screen angles, reused here as a per-channel hatch-direction
+  // offset so the four plates don't moiré against each other when combined.
+  const CHANNEL_ANGLE_OFFSET = { c: 15, m: 75, y: 0, k: 45 };
+  // Per-channel seeds for Truchet's tile-flip choice, so the four plates
+  // don't all draw an identical tile arrangement.
+  const CHANNEL_SEEDS = { c: 11, m: 23, y: 37, k: 53 };
 
   // ── DOM refs ──────────────────────────────────────────────
   const fileInput = document.getElementById('file-input');
@@ -71,6 +74,32 @@
   const strokeLenVal = document.getElementById('stroke-len-val');
   const lengthRandSlider = document.getElementById('length-rand-slider');
   const lengthRandVal = document.getElementById('length-rand-val');
+
+  // ── Hatch Pattern (Straight/Cross-Grid/Contour/Stipple/Zigzag/Truchet) ──
+  const patternButtons = document.querySelectorAll('.mode-btn[data-pattern]');
+  const hatchCommonControls = document.getElementById('hatch-common-controls');
+  const crossgridControls = document.getElementById('crossgrid-controls');
+  const contourControls = document.getElementById('contour-controls');
+  const stippleControls = document.getElementById('stipple-controls');
+  const zigzagControls = document.getElementById('zigzag-controls');
+  const truchetControls = document.getElementById('truchet-controls');
+
+  const crossAngleSlider = document.getElementById('cross-angle-slider');
+  const crossAngleVal = document.getElementById('cross-angle-val');
+  const contourLevelsSlider = document.getElementById('contour-levels-slider');
+  const contourLevelsVal = document.getElementById('contour-levels-val');
+  const stippleDensitySlider = document.getElementById('stipple-density-slider');
+  const stippleDensityVal = document.getElementById('stipple-density-val');
+  const dotSizeSlider = document.getElementById('dot-size-slider');
+  const dotSizeVal = document.getElementById('dot-size-val');
+  const relaxationSlider = document.getElementById('relaxation-slider');
+  const relaxationVal = document.getElementById('relaxation-val');
+  const zigzagAmpSlider = document.getElementById('zigzag-amp-slider');
+  const zigzagAmpVal = document.getElementById('zigzag-amp-val');
+  const zigzagFreqSlider = document.getElementById('zigzag-freq-slider');
+  const zigzagFreqVal = document.getElementById('zigzag-freq-val');
+  const tileSizeSlider = document.getElementById('tile-size-slider');
+  const tileSizeVal = document.getElementById('tile-size-val');
   const contrastSlider = document.getElementById('contrast-slider');
   const contrastVal = document.getElementById('contrast-val');
   const exposureSlider = document.getElementById('exposure-slider');
@@ -123,16 +152,22 @@
     return Number(channelDensitySliders[key].value) / 100;
   }
   function updateChannelLineCount(key) {
-    const n = channelStrokes[key].length;
-    channelLineCounts[key].textContent = `${n.toLocaleString()} line${n === 1 ? '' : 's'}`;
+    const data = channelStrokes[key];
+    const n = data.items.length;
+    const noun = data.kind === 'dots' ? 'dot' : 'line';
+    channelLineCounts[key].textContent = `${n.toLocaleString()} ${noun}${n === 1 ? '' : 's'}`;
   }
 
   let cropper = null;
   let channelState = null; // { width, height, c, m, y, k } — per-pixel gray arrays, low=more ink
-  let channelStrokes = { c: [], m: [], y: [], k: [] };
+  let channelStrokes = {
+    c: { kind: 'lines', items: [] }, m: { kind: 'lines', items: [] },
+    y: { kind: 'lines', items: [] }, k: { kind: 'lines', items: [] },
+  };
   let cachedSatWeights = null; // saturation field, built once per image, shared by all 4 channels
-  let renderMode = 'continuous'; // 'continuous' | 'single' | 'hatch'
+  let renderMode = 'continuous'; // 'continuous' | 'single' | 'hatch' | 'microprint'
   let directionMode = 'fixed';   // 'fixed' | 'parallelLines' | 'organic' | 'parallel'
+  let hatchPattern = 'straight'; // 'straight' | 'crossgrid' | 'contour' | 'stipple' | 'zigzag' | 'truchet'
   let srcW = 0, srcH = 0;
   let sourceFileName = 'photo';
 
@@ -696,6 +731,227 @@
     return strokes;
   }
 
+  // ── Cross-Grid: two full darkness-weighted passes at a fixed angle to
+  // ── each other, rather than only crossing above a darkness threshold.
+  function generateCrossHatchGrid(darkness, weights, satWeights, cols, rows, targetN, baseLenPx, lengthRandomness, dirMode, directionRad, parallelRigidity, flowRigidity, crossAngleRad, w, h) {
+    const { gx, gy } = buildGradientField(darkness, cols, rows);
+    const stepSize = HATCH_STEP;
+    const getDefaultDir = buildDirectionGetter(satWeights, cols, rows, dirMode, directionRad, flowRigidity, w, h);
+    const gradientScale = (dirMode === 'parallelLines' || dirMode === 'parallel') ? (1 - parallelRigidity / 100) : 1;
+
+    const pass1 = traceLayer(weights, cols, rows, targetN, baseLenPx, lengthRandomness, gx, gy, getDefaultDir, gradientScale, stepSize, w, h);
+
+    const cos = Math.cos(crossAngleRad), sin = Math.sin(crossAngleRad);
+    const getCrossDir = (x, y) => {
+      const [dx, dy] = getDefaultDir(x, y);
+      return [dx * cos - dy * sin, dx * sin + dy * cos];
+    };
+    const pass2 = traceLayer(weights, cols, rows, targetN, baseLenPx, lengthRandomness, gx, gy, getCrossDir, gradientScale, stepSize, w, h);
+
+    return pass1.concat(pass2);
+  }
+
+  // ── Zigzag: same flow-following tracer as Straight hatch, but each stroke
+  // ── oscillates perpendicular to its own direction as it travels.
+  function traceZigzagStroke(seedX, seedY, gx, gy, cols, rows, getDefaultDir, gradientScale, halfLen, stepSize, w, h, amplitude, frequency) {
+    const dirAt = (x, y) => {
+      const cx = Math.min(cols - 1, Math.max(0, Math.floor(x / CELL_SIZE)));
+      const cy = Math.min(rows - 1, Math.max(0, Math.floor(y / CELL_SIZE)));
+      const [ddx, ddy] = getDefaultDir(x, y);
+      return flowDirAt(gx[cy * cols + cx] * gradientScale, gy[cy * cols + cx] * gradientScale, ddx, ddy);
+    };
+
+    function walk(sign) {
+      const pts = [];
+      let x = seedX, y = seedY;
+      let [dx, dy] = dirAt(x, y);
+      dx *= sign; dy *= sign;
+      let dist = 0;
+      for (let i = 0; i < halfLen; i++) {
+        let [ndx, ndy] = dirAt(x, y);
+        if (ndx * dx + ndy * dy < 0) { ndx = -ndx; ndy = -ndy; }
+        dx = ndx; dy = ndy;
+        x += dx * stepSize; y += dy * stepSize;
+        dist += stepSize;
+        if (x < 0 || y < 0 || x > w || y > h) break;
+        const perpX = -dy, perpY = dx;
+        const offset = Math.sin((dist / stepSize) * frequency) * amplitude;
+        pts.push([x + perpX * offset, y + perpY * offset]);
+      }
+      return pts;
+    }
+
+    const fwd = walk(1);
+    const bwd = walk(-1).reverse();
+    return bwd.concat([[seedX, seedY]], fwd);
+  }
+
+  function generateZigzagStrokes(darkness, weights, satWeights, cols, rows, targetN, baseLenPx, lengthRandomness, dirMode, directionRad, parallelRigidity, flowRigidity, amplitude, frequency, w, h) {
+    const { gx, gy } = buildGradientField(darkness, cols, rows);
+    const stepSize = HATCH_STEP;
+    const getDefaultDir = buildDirectionGetter(satWeights, cols, rows, dirMode, directionRad, flowRigidity, w, h);
+    const gradientScale = (dirMode === 'parallelLines' || dirMode === 'parallel') ? (1 - parallelRigidity / 100) : 1;
+
+    const strokes = [];
+    const seeds = generatePoints(weights, cols, rows, targetN);
+    for (const [sx, sy] of seeds) {
+      const halfLen = Math.max(1, Math.round(randomizeLength(baseLenPx, lengthRandomness) / (2 * stepSize)));
+      const s = traceZigzagStroke(sx, sy, gx, gy, cols, rows, getDefaultDir, gradientScale, halfLen, stepSize, w, h, amplitude, frequency);
+      if (s.length > 1) strokes.push(s);
+    }
+    return strokes;
+  }
+
+  // ── Contour: marching squares over the (contrast-shaped) darkness field,
+  // ── tracing several equal-tone bands through the image like a topo map.
+  function marchingSquaresLevel(field, cols, rows, level) {
+    const segments = [];
+    const at = (x, y) => field[y * cols + x];
+    const lerp = (x0, y0, x1, y1, v0, v1) => {
+      const denom = v1 - v0;
+      const t = Math.abs(denom) > 1e-9 ? (level - v0) / denom : 0.5;
+      return [x0 + (x1 - x0) * t, y0 + (y1 - y0) * t];
+    };
+
+    for (let y = 0; y < rows - 1; y++) {
+      for (let x = 0; x < cols - 1; x++) {
+        const tl = at(x, y), tr = at(x + 1, y), br = at(x + 1, y + 1), bl = at(x, y + 1);
+        let idx = 0;
+        if (tl > level) idx |= 8;
+        if (tr > level) idx |= 4;
+        if (br > level) idx |= 2;
+        if (bl > level) idx |= 1;
+        if (idx === 0 || idx === 15) continue;
+
+        const top = () => lerp(x, y, x + 1, y, tl, tr);
+        const right = () => lerp(x + 1, y, x + 1, y + 1, tr, br);
+        const bottom = () => lerp(x, y + 1, x + 1, y + 1, bl, br);
+        const left = () => lerp(x, y, x, y + 1, tl, bl);
+
+        if (idx === 5) { segments.push([top(), left()]); segments.push([bottom(), right()]); continue; }
+        if (idx === 10) { segments.push([top(), right()]); segments.push([bottom(), left()]); continue; }
+
+        const EDGE_PAIRS = {
+          1: [left, bottom], 2: [bottom, right], 3: [left, right], 4: [top, right],
+          6: [top, bottom], 7: [top, left], 8: [top, left], 9: [top, bottom],
+          11: [top, right], 12: [left, right], 13: [bottom, right], 14: [left, bottom],
+        };
+        const pair = EDGE_PAIRS[idx];
+        if (pair) segments.push([pair[0](), pair[1]()]);
+      }
+    }
+    return segments;
+  }
+
+  function generateContourLines(weights, cols, rows, numLevels, cellSize) {
+    const strokes = [];
+    for (let i = 1; i <= numLevels; i++) {
+      const level = i / (numLevels + 1);
+      const segs = marchingSquaresLevel(weights, cols, rows, level);
+      for (const [[x0, y0], [x1, y1]] of segs) {
+        strokes.push([[x0 * cellSize, y0 * cellSize], [x1 * cellSize, y1 * cellSize]]);
+      }
+    }
+    return strokes;
+  }
+
+  // ── Stipple: weighted Voronoi stippling — start from darkness-weighted
+  // ── random points, then relax them toward their cell's weighted centroid
+  // ── a few times so they settle into an organic, evenly-spaced field that
+  // ── still concentrates in dark areas.
+  function weightedVoronoiStipple(weights, cols, rows, n, iterations, w, h) {
+    let points = generatePoints(weights, cols, rows, n);
+    if (points.length < 2 || iterations <= 0) return points;
+
+    for (let iter = 0; iter < iterations; iter++) {
+      const flat = new Float64Array(points.length * 2);
+      points.forEach((p, i) => { flat[i * 2] = p[0]; flat[i * 2 + 1] = p[1]; });
+      const delaunay = new d3.Delaunay(flat);
+
+      const sumX = new Float64Array(points.length);
+      const sumY = new Float64Array(points.length);
+      const sumW = new Float64Array(points.length);
+
+      let guess = 0;
+      for (let gy = 0; gy < rows; gy++) {
+        const py = (gy + 0.5) * CELL_SIZE;
+        guess = delaunay.find(0.5 * CELL_SIZE, py, guess);
+        for (let gx = 0; gx < cols; gx++) {
+          const px = (gx + 0.5) * CELL_SIZE;
+          guess = delaunay.find(px, py, guess);
+          const wgt = weights[gy * cols + gx] + 1e-6;
+          sumX[guess] += px * wgt;
+          sumY[guess] += py * wgt;
+          sumW[guess] += wgt;
+        }
+      }
+
+      points = points.map((p, i) => sumW[i] > 1e-6
+        ? [Math.min(w, Math.max(0, sumX[i] / sumW[i])), Math.min(h, Math.max(0, sumY[i] / sumW[i]))]
+        : p);
+    }
+    return points;
+  }
+
+  // ── Truchet: a grid of tiles, each filled with 1-3 nested quarter-circle
+  // ── arc pairs (darkness controls how many). Every tile touches all four
+  // ── edge midpoints exactly once, so neighboring tiles always connect
+  // ── into flowing, maze-like curves regardless of each tile's own flip.
+  function hashRandom(x, y, seed) {
+    let h = (x * 374761393 + y * 668265263 + seed * 2147483647) | 0;
+    h = Math.imul(h ^ (h >>> 13), 1274126177);
+    h = h ^ (h >>> 16);
+    return (h >>> 0) / 4294967295;
+  }
+
+  function arcPoints(cx, cy, r, a0, a1, steps) {
+    const pts = [];
+    const n = steps || 8;
+    for (let i = 0; i <= n; i++) {
+      const a = a0 + (a1 - a0) * (i / n);
+      pts.push([cx + r * Math.cos(a), cy + r * Math.sin(a)]);
+    }
+    return pts;
+  }
+
+  function generateTruchetTiles(weights, cols, rows, tileSize, seed, w, h) {
+    const strokes = [];
+    const gridCols = Math.ceil(w / tileSize);
+    const gridRows = Math.ceil(h / tileSize);
+
+    for (let ty = 0; ty < gridRows; ty++) {
+      for (let tx = 0; tx < gridCols; tx++) {
+        const x0 = tx * tileSize, y0 = ty * tileSize;
+        const gx0 = Math.min(cols - 1, Math.floor(x0 / CELL_SIZE));
+        const gy0 = Math.min(rows - 1, Math.floor(y0 / CELL_SIZE));
+        const gx1 = Math.max(gx0 + 1, Math.min(cols, Math.ceil((x0 + tileSize) / CELL_SIZE)));
+        const gy1 = Math.max(gy0 + 1, Math.min(rows, Math.ceil((y0 + tileSize) / CELL_SIZE)));
+
+        let sum = 0, count = 0;
+        for (let gy = gy0; gy < gy1; gy++) {
+          for (let gx = gx0; gx < gx1; gx++) { sum += weights[gy * cols + gx]; count++; }
+        }
+        const coverage = count > 0 ? Math.min(1, sum / count) : 0;
+        if (coverage < 0.05) continue;
+
+        const numArcs = 1 + Math.round(coverage * 2);
+        const flip = hashRandom(tx, ty, seed) < 0.5;
+
+        const c1x = flip ? x0 + tileSize : x0, c1y = y0;
+        const c2x = flip ? x0 : x0 + tileSize, c2y = y0 + tileSize;
+        const a1start = flip ? Math.PI / 2 : 0, a1end = flip ? Math.PI : Math.PI / 2;
+        const a2start = flip ? Math.PI * 1.5 : Math.PI, a2end = flip ? Math.PI * 2 : Math.PI * 1.5;
+
+        for (let k = 1; k <= numArcs; k++) {
+          const r = (tileSize / 2) * (k / (numArcs + 0.4));
+          strokes.push(arcPoints(c1x, c1y, r, a1start, a1end));
+          strokes.push(arcPoints(c2x, c2y, r, a2start, a2end));
+        }
+      }
+    }
+    return strokes;
+  }
+
   // ── Microprint: same darkness-seeded flow paths as hatch's primary layer,
   // ── no crosshatch — the paths are meant to carry readable repeating text,
   // ── which a crossing second layer would just turn to mush.
@@ -766,6 +1022,8 @@
   }
 
   // ── Per-channel stroke computation ───────────────────────
+  // Returns { kind: 'lines', items: [[[x,y],...], ...] } for every pattern
+  // except Stipple, which returns { kind: 'dots', items: [[x,y],...], dotRadius }.
   function computeChannelStrokes(key) {
     const { width, height } = channelState;
     const gray = channelState[key];
@@ -777,7 +1035,7 @@
       const targetN = Math.round(Number(densitySlider.value) * densityMult);
       const points = generatePoints(weights, cols, rows, targetN);
       const path = points.length ? buildPath(points, width, height) : [];
-      return path.length ? [path] : [];
+      return { kind: 'lines', items: path.length ? [path] : [] };
     }
 
     const baseDirDeg = Number(directionSlider.value);
@@ -790,14 +1048,43 @@
     if (renderMode === 'microprint') {
       const targetN = Math.round(Number(microprintDensitySlider.value) * densityMult);
       const pathLen = Number(microprintLengthSlider.value);
-      return generateMicroprintPaths(darkness, weights, satWeights, cols, rows, targetN, pathLen, 0.3, directionMode, directionRad, parallelRigidity, flowRigidity, width, height);
+      return { kind: 'lines', items: generateMicroprintPaths(darkness, weights, satWeights, cols, rows, targetN, pathLen, 0.3, directionMode, directionRad, parallelRigidity, flowRigidity, width, height) };
     }
 
-    const targetN = Math.round(Number(hatchDensitySlider.value) * densityMult);
+    // renderMode === 'hatch' — dispatch on the selected Hatch Pattern.
     const strokeLen = Number(strokeLenSlider.value);
     const lengthRand = Number(lengthRandSlider.value) / 100;
 
-    return generateHatchStrokes(darkness, weights, satWeights, cols, rows, targetN, strokeLen, lengthRand, directionMode, directionRad, parallelRigidity, flowRigidity, width, height);
+    if (hatchPattern === 'crossgrid') {
+      const targetN = Math.round(Number(hatchDensitySlider.value) * densityMult);
+      const crossAngleRad = Number(crossAngleSlider.value) * Math.PI / 180;
+      return { kind: 'lines', items: generateCrossHatchGrid(darkness, weights, satWeights, cols, rows, targetN, strokeLen, lengthRand, directionMode, directionRad, parallelRigidity, flowRigidity, crossAngleRad, width, height) };
+    }
+    if (hatchPattern === 'contour') {
+      const levels = Number(contourLevelsSlider.value);
+      return { kind: 'lines', items: generateContourLines(weights, cols, rows, levels, CELL_SIZE) };
+    }
+    if (hatchPattern === 'stipple') {
+      const targetN = Math.round(Number(stippleDensitySlider.value) * densityMult);
+      const iterations = Number(relaxationSlider.value);
+      const dotRadius = Number(dotSizeSlider.value);
+      const points = weightedVoronoiStipple(weights, cols, rows, targetN, iterations, width, height);
+      return { kind: 'dots', items: points, dotRadius };
+    }
+    if (hatchPattern === 'zigzag') {
+      const targetN = Math.round(Number(hatchDensitySlider.value) * densityMult);
+      const amplitude = Number(zigzagAmpSlider.value);
+      const frequency = Number(zigzagFreqSlider.value) / 100;
+      return { kind: 'lines', items: generateZigzagStrokes(darkness, weights, satWeights, cols, rows, targetN, strokeLen, lengthRand, directionMode, directionRad, parallelRigidity, flowRigidity, amplitude, frequency, width, height) };
+    }
+    if (hatchPattern === 'truchet') {
+      const tileSize = Number(tileSizeSlider.value);
+      return { kind: 'lines', items: generateTruchetTiles(weights, cols, rows, tileSize, CHANNEL_SEEDS[key], width, height) };
+    }
+
+    // default: straight
+    const targetN = Math.round(Number(hatchDensitySlider.value) * densityMult);
+    return { kind: 'lines', items: generateHatchStrokes(darkness, weights, satWeights, cols, rows, targetN, strokeLen, lengthRand, directionMode, directionRad, parallelRigidity, flowRigidity, width, height) };
   }
 
   function renderAllChannels() {
@@ -812,7 +1099,7 @@
       const ctx = canvas.getContext('2d');
 
       if (renderMode === 'continuous') {
-        channelStrokes[key] = [];
+        channelStrokes[key] = { kind: 'lines', items: [] };
         updateChannelLineCount(key);
         ctx.putImageData(renderContinuous(channelState[key], width, height), 0, 0);
         return;
@@ -835,7 +1122,7 @@
         ctx.textBaseline = 'middle';
         ctx.textAlign = 'center';
         const charWidthCache = {};
-        for (const path of strokes) {
+        for (const path of strokes.items) {
           const placements = walkPathForText(path, text, spacingMult, charWidthCache, ctx);
           for (const p of placements) {
             ctx.save();
@@ -848,11 +1135,21 @@
         return;
       }
 
+      if (strokes.kind === 'dots') {
+        ctx.fillStyle = '#000';
+        for (const [px, py] of strokes.items) {
+          ctx.beginPath();
+          ctx.arc(px, py, strokes.dotRadius, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        return;
+      }
+
       ctx.lineJoin = 'round';
       ctx.lineCap = 'round';
       ctx.lineWidth = weight;
       ctx.strokeStyle = '#000';
-      for (const s of strokes) {
+      for (const s of strokes.items) {
         if (s.length < 2) continue;
         ctx.beginPath();
         ctx.moveTo(s[0][0], s[0][1]);
@@ -873,7 +1170,7 @@
       status.textContent = `Done — ${width}×${height}px`;
       return;
     }
-    const counts = CHANNEL_ORDER.map(k => channelStrokes[k].length);
+    const counts = CHANNEL_ORDER.map(k => channelStrokes[k].items.length);
     const total = counts.reduce((a, b) => a + b, 0);
     if (total === 0) {
       status.textContent = 'No strokes generated — raise density or contrast.';
@@ -921,17 +1218,52 @@
   }
 
   // ── Mode / control wiring ─────────────────────────────────
+  // Direction (Fixed/Parallel Lines/Organic/Parallel Flow) only means
+  // something for patterns that trace an oriented path.
+  function directionControlsApplicable() {
+    if (renderMode === 'microprint') return true;
+    if (renderMode !== 'hatch') return false;
+    return hatchPattern === 'straight' || hatchPattern === 'crossgrid' || hatchPattern === 'zigzag';
+  }
+  // The per-channel Density slider only means something for patterns with
+  // an actual point/stroke count (Contour uses Levels, Truchet a fixed grid).
+  function densityMultApplicable() {
+    if (renderMode === 'continuous') return false;
+    if (renderMode === 'hatch') return hatchPattern !== 'contour' && hatchPattern !== 'truchet';
+    return true;
+  }
+
+  function updateHatchPatternVisibility() {
+    hatchCommonControls.classList.toggle('hidden', !(hatchPattern === 'straight' || hatchPattern === 'crossgrid' || hatchPattern === 'zigzag'));
+    crossgridControls.classList.toggle('hidden', hatchPattern !== 'crossgrid');
+    contourControls.classList.toggle('hidden', hatchPattern !== 'contour');
+    stippleControls.classList.toggle('hidden', hatchPattern !== 'stipple');
+    zigzagControls.classList.toggle('hidden', hatchPattern !== 'zigzag');
+    truchetControls.classList.toggle('hidden', hatchPattern !== 'truchet');
+    flowDirectionControls.classList.toggle('hidden', !directionControlsApplicable());
+    weightCtrl.classList.toggle('hidden', renderMode === 'microprint' || (renderMode === 'hatch' && hatchPattern === 'stipple'));
+    CHANNEL_ORDER.forEach(key => {
+      channelDensityRows[key].classList.toggle('hidden', !densityMultApplicable());
+    });
+  }
+
   function updateControlVisibility() {
     singleControls.classList.toggle('hidden', renderMode !== 'single');
     hatchControls.classList.toggle('hidden', renderMode !== 'hatch');
     microprintControls.classList.toggle('hidden', renderMode !== 'microprint');
-    flowDirectionControls.classList.toggle('hidden', renderMode !== 'hatch' && renderMode !== 'microprint');
     lineSharedControls.classList.toggle('hidden', renderMode === 'continuous');
-    weightCtrl.classList.toggle('hidden', renderMode === 'microprint');
-    CHANNEL_ORDER.forEach(key => {
-      channelDensityRows[key].classList.toggle('hidden', renderMode === 'continuous');
-    });
+    updateHatchPatternVisibility();
   }
+
+  function setHatchPattern(next) {
+    hatchPattern = next;
+    patternButtons.forEach(b => b.classList.toggle('active', b.dataset.pattern === hatchPattern));
+    updateHatchPatternVisibility();
+    scheduleRender();
+  }
+  patternButtons.forEach(btn => {
+    btn.addEventListener('click', () => setHatchPattern(btn.dataset.pattern));
+  });
 
   modeButtons.forEach(btn => {
     btn.addEventListener('click', () => {
@@ -979,9 +1311,23 @@
     microprintLengthVal.textContent = Number(microprintLengthSlider.value) + 'px';
     charSizeVal.textContent = Number(charSizeSlider.value) + 'px';
     charSpacingVal.textContent = Number(charSpacingSlider.value) + '%';
+    crossAngleVal.textContent = Number(crossAngleSlider.value) + '°';
+    contourLevelsVal.textContent = Number(contourLevelsSlider.value);
+    stippleDensityVal.textContent = Number(stippleDensitySlider.value).toLocaleString();
+    dotSizeVal.textContent = Number(dotSizeSlider.value) + 'px';
+    relaxationVal.textContent = Number(relaxationSlider.value);
+    zigzagAmpVal.textContent = Number(zigzagAmpSlider.value) + 'px';
+    zigzagFreqVal.textContent = Number(zigzagFreqSlider.value);
+    tileSizeVal.textContent = Number(tileSizeSlider.value) + 'px';
   }
 
-  const allSliders = [densitySlider, hatchDensitySlider, directionSlider, parallelRigiditySlider, flowRigiditySlider, strokeLenSlider, lengthRandSlider, contrastSlider, weightSlider, microprintDensitySlider, microprintLengthSlider, charSizeSlider, charSpacingSlider];
+  const allSliders = [
+    densitySlider, hatchDensitySlider, directionSlider, parallelRigiditySlider, flowRigiditySlider,
+    strokeLenSlider, lengthRandSlider, contrastSlider, weightSlider, microprintDensitySlider,
+    microprintLengthSlider, charSizeSlider, charSpacingSlider,
+    crossAngleSlider, contourLevelsSlider, stippleDensitySlider, dotSizeSlider, relaxationSlider,
+    zigzagAmpSlider, zigzagFreqSlider, tileSizeSlider,
+  ];
   allSliders.forEach(el => {
     el.addEventListener('input', () => { updateLabels(); scheduleRender(); });
   });
@@ -1140,6 +1486,17 @@
       `<g fill="none" stroke="#000000" stroke-width="${round2(weight)}" stroke-linecap="round" stroke-linejoin="round">${polylines}</g></svg>`;
   }
 
+  function buildDotSVG(points, radius, width, height) {
+    let circles = '';
+    for (const [x, y] of points) {
+      circles += `<circle cx="${round2(x)}" cy="${round2(y)}" r="${round2(radius)}"/>`;
+    }
+    return '<?xml version="1.0" encoding="UTF-8"?>\n' +
+      `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">` +
+      `<rect width="${width}" height="${height}" fill="#ffffff"/>` +
+      `<g fill="#000000">${circles}</g></svg>`;
+  }
+
   function buildMicroprintSVG(paths, text, fontSizePx, spacingMult, width, height) {
     const measureCanvas = document.createElement('canvas');
     const mctx = measureCanvas.getContext('2d');
@@ -1200,6 +1557,38 @@
     return L.join('\n');
   }
 
+  function buildDotDXF(points, radius, height) {
+    const L = [];
+    const w = (code, val) => { L.push(String(code), String(val)); };
+
+    w(0, 'SECTION'); w(2, 'HEADER');
+    w(9, '$ACADVER'); w(1, 'AC1009');
+    w(0, 'ENDSEC');
+
+    w(0, 'SECTION'); w(2, 'TABLES');
+    w(0, 'TABLE'); w(2, 'LTYPE'); w(70, 1);
+    w(0, 'LTYPE'); w(2, 'CONTINUOUS'); w(70, 0); w(3, 'Solid line'); w(72, 65); w(73, 0); w(40, '0.0');
+    w(0, 'ENDTAB');
+    w(0, 'TABLE'); w(2, 'LAYER'); w(70, 1);
+    w(0, 'LAYER'); w(2, '0'); w(70, 0); w(62, 7); w(6, 'CONTINUOUS');
+    w(0, 'ENDTAB');
+    w(0, 'ENDSEC');
+
+    w(0, 'SECTION'); w(2, 'ENTITIES');
+    for (const [x, y] of points) {
+      w(0, 'CIRCLE');
+      w(8, '0');
+      w(10, x.toFixed(4));
+      w(20, (height - y).toFixed(4));
+      w(30, '0.0');
+      w(40, radius.toFixed(4));
+    }
+    w(0, 'ENDSEC');
+    w(0, 'EOF');
+
+    return L.join('\n');
+  }
+
   function buildDownloadFilename(channel, ext) {
     return `${CHANNEL_FILE_NAMES[channel]}-${sourceFileName}-${renderMode}.${ext}`;
   }
@@ -1226,15 +1615,18 @@
   function downloadSVG(channel) {
     if (!channelState || renderMode === 'continuous') return;
     const { width, height } = channelState;
+    const data = channelStrokes[channel];
     let svg;
-    if (renderMode === 'microprint') {
+    if (data.kind === 'dots') {
+      svg = buildDotSVG(data.items, data.dotRadius, width, height);
+    } else if (renderMode === 'microprint') {
       const text = (microprintTextInput.value || '').trim();
       const fontSizePx = Number(charSizeSlider.value);
       const spacingMult = Number(charSpacingSlider.value) / 100;
-      svg = buildMicroprintSVG(channelStrokes[channel], text, fontSizePx, spacingMult, width, height);
+      svg = buildMicroprintSVG(data.items, text, fontSizePx, spacingMult, width, height);
     } else {
       const weight = Number(weightSlider.value) / 10;
-      svg = buildLineSVG(channelStrokes[channel], width, height, weight);
+      svg = buildLineSVG(data.items, width, height, weight);
     }
     const blob = new Blob([svg], { type: 'image/svg+xml' });
     const url = URL.createObjectURL(blob);
@@ -1248,7 +1640,8 @@
   function downloadDXF(channel) {
     if (!channelState || renderMode === 'continuous' || renderMode === 'microprint') return;
     const { height } = channelState;
-    const dxf = buildDXF(channelStrokes[channel], height);
+    const data = channelStrokes[channel];
+    const dxf = data.kind === 'dots' ? buildDotDXF(data.items, data.dotRadius, height) : buildDXF(data.items, height);
     const blob = new Blob([dxf], { type: 'application/dxf' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');

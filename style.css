@@ -202,6 +202,12 @@ button:disabled {
 }
 
 .ctrl { flex: 1 1 220px; min-width: 200px; }
+
+/* Lets a group of .ctrl blocks be shown/hidden together (per hatch pattern)
+   without breaking out of #hatch-controls' own flex-wrap layout — the
+   group itself takes no box, so its children act as direct flex items. */
+.ctrl-group { display: contents; }
+
 .ctrl label {
   display: flex;
   justify-content: space-between;

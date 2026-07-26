@@ -6,6 +6,7 @@
 <title>CMYK Hatch Split</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/cropperjs@1.6.2/dist/cropper.min.css">
 <link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/d3-delaunay@6"></script>
 </head>
 <body>
 <header>
@@ -97,7 +98,7 @@
           <button type="button" id="dir-organic-btn" class="mode-btn">Organic Flow</button>
           <button type="button" id="dir-parallel-btn" class="mode-btn">Parallel Flow</button>
         </div>
-        <div class="hint">Fixed/Organic bend toward the photo's edges (Hatch also crosshatches dark areas with these two — Microprint never crosshatches, to keep the text legible). Parallel Lines/Parallel Flow can be locked rigid. Each channel's angle is offset by its own screen angle (C 105&deg;/M 75&deg;/Y 90&deg;/K 15&deg;) so the four plates don't moir&eacute; against each other when combined.</div>
+        <div class="hint">Fixed/Organic bend toward the photo's edges (Hatch also crosshatches dark areas with these two — Microprint never crosshatches, to keep the text legible). Parallel Lines/Parallel Flow can be locked rigid. Each channel's angle is offset by the classic C/M/Y/K screen angles (15&deg;/75&deg;/0&deg;/45&deg;) so the four plates don't moir&eacute; against each other when combined.</div>
       </div>
 
       <div class="ctrl" id="direction-angle-ctrl">
@@ -117,18 +118,83 @@
     </div>
 
     <div id="hatch-controls" class="hidden">
-      <div class="ctrl">
-        <label>Hatch Density <b id="hatch-density-val"></b></label>
-        <input type="range" id="hatch-density-slider" min="100" max="40000" value="1800" step="100">
-        <div class="hint">Strokes per channel. Dark areas gain a second crossing stroke for true crosshatch shading.</div>
+      <div class="ctrl" style="flex-basis: 100%;">
+        <label>Hatch Pattern</label>
+        <div class="mode-toggle" role="group" aria-label="Hatch pattern">
+          <button type="button" id="pattern-straight-btn" class="mode-btn active" data-pattern="straight">Straight</button>
+          <button type="button" id="pattern-crossgrid-btn" class="mode-btn" data-pattern="crossgrid">Cross-Grid</button>
+          <button type="button" id="pattern-contour-btn" class="mode-btn" data-pattern="contour">Contour</button>
+          <button type="button" id="pattern-stipple-btn" class="mode-btn" data-pattern="stipple">Stipple</button>
+          <button type="button" id="pattern-zigzag-btn" class="mode-btn" data-pattern="zigzag">Zigzag</button>
+          <button type="button" id="pattern-truchet-btn" class="mode-btn" data-pattern="truchet">Truchet</button>
+        </div>
+        <div class="hint">Straight/Cross-Grid/Zigzag use the Stroke Direction settings above. Contour traces the image's own equal-tone lines (marching squares). Stipple relaxes weighted points into an organic dot field (weighted Voronoi stippling). Truchet fills a tile grid with darkness-driven nested arcs.</div>
       </div>
-      <div class="ctrl">
-        <label>Stroke Length <b id="stroke-len-val"></b></label>
-        <input type="range" id="stroke-len-slider" min="6" max="50" value="16">
+
+      <div id="hatch-common-controls" class="ctrl-group">
+        <div class="ctrl">
+          <label>Hatch Density <b id="hatch-density-val"></b></label>
+          <input type="range" id="hatch-density-slider" min="100" max="40000" value="1800" step="100">
+          <div class="hint">Strokes per channel. Straight/Organic also gain a second crossing stroke in dark areas.</div>
+        </div>
+        <div class="ctrl">
+          <label>Stroke Length <b id="stroke-len-val"></b></label>
+          <input type="range" id="stroke-len-slider" min="6" max="50" value="16">
+        </div>
+        <div class="ctrl">
+          <label>Length Randomness <b id="length-rand-val"></b></label>
+          <input type="range" id="length-rand-slider" min="0" max="100" value="40" step="5">
+        </div>
       </div>
-      <div class="ctrl">
-        <label>Length Randomness <b id="length-rand-val"></b></label>
-        <input type="range" id="length-rand-slider" min="0" max="100" value="40" step="5">
+
+      <div id="crossgrid-controls" class="ctrl-group hidden">
+        <div class="ctrl">
+          <label>Cross Angle <b id="cross-angle-val"></b></label>
+          <input type="range" id="cross-angle-slider" min="30" max="150" value="90">
+          <div class="hint">Angle between the two hatch passes.</div>
+        </div>
+      </div>
+
+      <div id="contour-controls" class="ctrl-group hidden">
+        <div class="ctrl">
+          <label>Contour Levels <b id="contour-levels-val"></b></label>
+          <input type="range" id="contour-levels-slider" min="3" max="40" value="12">
+          <div class="hint">Number of equal-tone bands traced through the image, like a topographic map.</div>
+        </div>
+      </div>
+
+      <div id="stipple-controls" class="ctrl-group hidden">
+        <div class="ctrl">
+          <label>Stipple Density <b id="stipple-density-val"></b></label>
+          <input type="range" id="stipple-density-slider" min="200" max="30000" value="4000" step="100">
+        </div>
+        <div class="ctrl">
+          <label>Dot Size <b id="dot-size-val"></b></label>
+          <input type="range" id="dot-size-slider" min="1" max="12" value="3" step="0.5">
+        </div>
+        <div class="ctrl">
+          <label>Relaxation <b id="relaxation-val"></b></label>
+          <input type="range" id="relaxation-slider" min="0" max="8" value="4">
+          <div class="hint">Lloyd relaxation passes — more evenly spaces the dots (weighted Voronoi stippling). 0 is pure random placement.</div>
+        </div>
+      </div>
+
+      <div id="zigzag-controls" class="ctrl-group hidden">
+        <div class="ctrl">
+          <label>Zigzag Amplitude <b id="zigzag-amp-val"></b></label>
+          <input type="range" id="zigzag-amp-slider" min="1" max="20" value="6">
+        </div>
+        <div class="ctrl">
+          <label>Zigzag Frequency <b id="zigzag-freq-val"></b></label>
+          <input type="range" id="zigzag-freq-slider" min="10" max="200" value="60" step="5">
+        </div>
+      </div>
+
+      <div id="truchet-controls" class="ctrl-group hidden">
+        <div class="ctrl">
+          <label>Tile Size <b id="tile-size-val"></b></label>
+          <input type="range" id="tile-size-slider" min="8" max="60" value="24">
+        </div>
       </div>
     </div>
 
