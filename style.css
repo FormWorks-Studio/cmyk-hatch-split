@@ -97,14 +97,16 @@ button:disabled {
   justify-content: center;
   align-items: start;
   gap: 24px;
-  max-width: 1040px;
+  max-width: 1600px;
+  width: 100%;
   margin: 0 auto 32px;
 }
 
 #original-wrap,
 #combined-wrap {
-  flex: 1 1 420px;
-  max-width: 480px;
+  flex: 1 1 0;
+  min-width: 320px;
+  max-width: none;
   margin: 0;
   text-align: center;
 }
