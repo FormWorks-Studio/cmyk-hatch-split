@@ -67,9 +67,11 @@
   const dirParallelLinesBtn = document.getElementById('dir-parallel-lines-btn');
   const dirOrganicBtn = document.getElementById('dir-organic-btn');
   const dirParallelBtn = document.getElementById('dir-parallel-btn');
+  const dirAdaptiveBtn = document.getElementById('dir-adaptive-btn');
   const directionAngleCtrl = document.getElementById('direction-angle-ctrl');
   const parallelRigidityCtrl = document.getElementById('parallel-rigidity-ctrl');
   const flowRigidityCtrl = document.getElementById('flow-rigidity-ctrl');
+  const geoSensitivityCtrl = document.getElementById('geo-sensitivity-ctrl');
 
   const directionSlider = document.getElementById('direction-slider');
   const directionVal = document.getElementById('direction-val');
@@ -77,6 +79,8 @@
   const parallelRigidityVal = document.getElementById('parallel-rigidity-val');
   const flowRigiditySlider = document.getElementById('flow-rigidity-slider');
   const flowRigidityVal = document.getElementById('flow-rigidity-val');
+  const geoSensitivitySlider = document.getElementById('geo-sensitivity-slider');
+  const geoSensitivityVal = document.getElementById('geo-sensitivity-val');
   const strokeLenSlider = document.getElementById('stroke-len-slider');
   const strokeLenVal = document.getElementById('stroke-len-val');
   const lengthRandSlider = document.getElementById('length-rand-slider');
@@ -676,6 +680,64 @@
     };
   }
 
+  // ── Local gradient structure tensor: measures how consistently the
+  // gradient points in one direction across a neighborhood (coherence),
+  // which separates hard, straight edges (buildings, pathways) from
+  // turbulent, many-directioned texture (foliage, water). Used by Adaptive.
+  function buildStructureTensorField(gx, gy, cols, rows) {
+    const n = cols * rows;
+    let Jxx = new Float64Array(n), Jyy = new Float64Array(n), Jxy = new Float64Array(n);
+    for (let i = 0; i < n; i++) {
+      Jxx[i] = gx[i] * gx[i];
+      Jyy[i] = gy[i] * gy[i];
+      Jxy[i] = gx[i] * gy[i];
+    }
+    Jxx = smoothField(Jxx, cols, rows, 3);
+    Jyy = smoothField(Jyy, cols, rows, 3);
+    Jxy = smoothField(Jxy, cols, rows, 3);
+
+    const coherence = new Float64Array(n);
+    const angle = new Float64Array(n);
+    for (let i = 0; i < n; i++) {
+      const trace = Jxx[i] + Jyy[i];
+      const diff = Jxx[i] - Jyy[i];
+      const disc = Math.hypot(diff, 2 * Jxy[i]);
+      const l1 = (trace + disc) / 2, l2 = (trace - disc) / 2;
+      coherence[i] = l1 + l2 > 1e-9 ? (l1 - l2) / (l1 + l2) : 0;
+      // The dominant eigenvector points along the gradient; the edge
+      // tangent (the "straight" stroke direction) runs 90° from it.
+      angle[i] = 0.5 * Math.atan2(2 * Jxy[i], diff) + Math.PI / 2;
+    }
+    return { coherence, angle };
+  }
+
+  // ── Adaptive: blends a straight stroke aligned to the image's own local
+  // edge direction (high coherence — geometric subjects) with the Organic
+  // flow field (low coherence — organic subjects), per grid cell.
+  function buildAdaptiveDirectionGetter(satWeights, gx, gy, cols, rows, anchorCount, sensitivity, w, h) {
+    const { coherence, angle } = buildStructureTensorField(gx, gy, cols, rows);
+    const organicSample = buildOrganicFlowField(satWeights, cols, rows, anchorCount, w, h);
+    // Higher sensitivity lowers the coherence bar needed to read as "geometric".
+    const lo = 0.4 - (sensitivity / 100) * 0.35;
+    const hi = lo + 0.25;
+
+    return function sampleAt(x, y) {
+      const cx = Math.min(cols - 1, Math.max(0, Math.floor(x / CELL_SIZE)));
+      const cy = Math.min(rows - 1, Math.max(0, Math.floor(y / CELL_SIZE)));
+      const idx = cy * cols + cx;
+      const t = Math.max(0, Math.min(1, (coherence[idx] - lo) / (hi - lo)));
+
+      const a = angle[idx];
+      let sx = Math.cos(a), sy = Math.sin(a);
+      const [ox, oy] = organicSample(x, y);
+      if (sx * ox + sy * oy < 0) { sx = -sx; sy = -sy; }
+      const dx = sx * t + ox * (1 - t);
+      const dy = sy * t + oy * (1 - t);
+      const len = Math.hypot(dx, dy) || 1;
+      return [dx / len, dy / len];
+    };
+  }
+
   function traceStroke(seedX, seedY, gx, gy, cols, rows, getDefaultDir, gradientScale, halfLen, stepSize, w, h) {
     const dirAt = (x, y) => {
       const cx = Math.min(cols - 1, Math.max(0, Math.floor(x / CELL_SIZE)));
@@ -723,7 +785,10 @@
   // Shared by Hatch and Microprint: a default-direction sampler (constant
   // angle, or an organic flow field) plus how much real photo edges are
   // allowed to bend that default away.
-  function buildDirectionGetter(satWeights, cols, rows, dirMode, directionRad, flowRigidity, w, h) {
+  function buildDirectionGetter(satWeights, gx, gy, cols, rows, dirMode, directionRad, flowRigidity, sensitivity, w, h) {
+    if (dirMode === 'adaptive') {
+      return buildAdaptiveDirectionGetter(satWeights, gx, gy, cols, rows, flowAnchorCount(flowRigidity, cols, rows), sensitivity, w, h);
+    }
     return (dirMode === 'organic' || dirMode === 'parallel')
       ? buildOrganicFlowField(satWeights, cols, rows, flowAnchorCount(flowRigidity, cols, rows), w, h)
       : (() => { const fdx = Math.cos(directionRad), fdy = Math.sin(directionRad); return () => [fdx, fdy]; })();
@@ -742,11 +807,11 @@
     return strokes;
   }
 
-  function generateHatchStrokes(darkness, weights, satWeights, cols, rows, targetN, baseLenPx, lengthRandomness, dirMode, directionRad, parallelRigidity, flowRigidity, w, h) {
+  function generateHatchStrokes(darkness, weights, satWeights, cols, rows, targetN, baseLenPx, lengthRandomness, dirMode, directionRad, parallelRigidity, flowRigidity, sensitivity, w, h) {
     const { gx, gy } = buildGradientField(darkness, cols, rows);
     const stepSize = HATCH_STEP;
 
-    const getDefaultDir = buildDirectionGetter(satWeights, cols, rows, dirMode, directionRad, flowRigidity, w, h);
+    const getDefaultDir = buildDirectionGetter(satWeights, gx, gy, cols, rows, dirMode, directionRad, flowRigidity, sensitivity, w, h);
     const gradientScale = (dirMode === 'parallelLines' || dirMode === 'parallel') ? (1 - parallelRigidity / 100) : 1;
 
     const strokes = traceLayer(weights, cols, rows, targetN, baseLenPx, lengthRandomness, gx, gy, getDefaultDir, gradientScale, stepSize, w, h);
@@ -773,10 +838,10 @@
 
   // ── Cross-Grid: two full darkness-weighted passes at a fixed angle to
   // ── each other, rather than only crossing above a darkness threshold.
-  function generateCrossHatchGrid(darkness, weights, satWeights, cols, rows, targetN, baseLenPx, lengthRandomness, dirMode, directionRad, parallelRigidity, flowRigidity, crossAngleRad, w, h) {
+  function generateCrossHatchGrid(darkness, weights, satWeights, cols, rows, targetN, baseLenPx, lengthRandomness, dirMode, directionRad, parallelRigidity, flowRigidity, sensitivity, crossAngleRad, w, h) {
     const { gx, gy } = buildGradientField(darkness, cols, rows);
     const stepSize = HATCH_STEP;
-    const getDefaultDir = buildDirectionGetter(satWeights, cols, rows, dirMode, directionRad, flowRigidity, w, h);
+    const getDefaultDir = buildDirectionGetter(satWeights, gx, gy, cols, rows, dirMode, directionRad, flowRigidity, sensitivity, w, h);
     const gradientScale = (dirMode === 'parallelLines' || dirMode === 'parallel') ? (1 - parallelRigidity / 100) : 1;
 
     const pass1 = traceLayer(weights, cols, rows, targetN, baseLenPx, lengthRandomness, gx, gy, getDefaultDir, gradientScale, stepSize, w, h);
@@ -826,10 +891,10 @@
     return bwd.concat([[seedX, seedY]], fwd);
   }
 
-  function generateZigzagStrokes(darkness, weights, satWeights, cols, rows, targetN, baseLenPx, lengthRandomness, dirMode, directionRad, parallelRigidity, flowRigidity, amplitude, frequency, w, h) {
+  function generateZigzagStrokes(darkness, weights, satWeights, cols, rows, targetN, baseLenPx, lengthRandomness, dirMode, directionRad, parallelRigidity, flowRigidity, sensitivity, amplitude, frequency, w, h) {
     const { gx, gy } = buildGradientField(darkness, cols, rows);
     const stepSize = HATCH_STEP;
-    const getDefaultDir = buildDirectionGetter(satWeights, cols, rows, dirMode, directionRad, flowRigidity, w, h);
+    const getDefaultDir = buildDirectionGetter(satWeights, gx, gy, cols, rows, dirMode, directionRad, flowRigidity, sensitivity, w, h);
     const gradientScale = (dirMode === 'parallelLines' || dirMode === 'parallel') ? (1 - parallelRigidity / 100) : 1;
 
     const strokes = [];
@@ -995,10 +1060,10 @@
   // ── Microprint: same darkness-seeded flow paths as hatch's primary layer,
   // ── no crosshatch — the paths are meant to carry readable repeating text,
   // ── which a crossing second layer would just turn to mush.
-  function generateMicroprintPaths(darkness, weights, satWeights, cols, rows, targetN, baseLenPx, lengthRandomness, dirMode, directionRad, parallelRigidity, flowRigidity, w, h) {
+  function generateMicroprintPaths(darkness, weights, satWeights, cols, rows, targetN, baseLenPx, lengthRandomness, dirMode, directionRad, parallelRigidity, flowRigidity, sensitivity, w, h) {
     const { gx, gy } = buildGradientField(darkness, cols, rows);
     const stepSize = HATCH_STEP;
-    const getDefaultDir = buildDirectionGetter(satWeights, cols, rows, dirMode, directionRad, flowRigidity, w, h);
+    const getDefaultDir = buildDirectionGetter(satWeights, gx, gy, cols, rows, dirMode, directionRad, flowRigidity, sensitivity, w, h);
     const gradientScale = (dirMode === 'parallelLines' || dirMode === 'parallel') ? (1 - parallelRigidity / 100) : 1;
     return traceLayer(weights, cols, rows, targetN, baseLenPx, lengthRandomness, gx, gy, getDefaultDir, gradientScale, stepSize, w, h);
   }
@@ -1083,12 +1148,13 @@
     const directionRad = channelDirDeg * Math.PI / 180;
     const parallelRigidity = Number(parallelRigiditySlider.value);
     const flowRigidity = Number(flowRigiditySlider.value);
-    const satWeights = (directionMode === 'organic' || directionMode === 'parallel') ? cachedSatWeights : null;
+    const geoSensitivity = Number(geoSensitivitySlider.value);
+    const satWeights = (directionMode === 'organic' || directionMode === 'parallel' || directionMode === 'adaptive') ? cachedSatWeights : null;
 
     if (renderMode === 'microprint') {
       const targetN = Math.round(Number(microprintDensitySlider.value) * densityMult);
       const pathLen = Number(microprintLengthSlider.value);
-      return { kind: 'lines', items: generateMicroprintPaths(darkness, weights, satWeights, cols, rows, targetN, pathLen, 0.3, directionMode, directionRad, parallelRigidity, flowRigidity, width, height) };
+      return { kind: 'lines', items: generateMicroprintPaths(darkness, weights, satWeights, cols, rows, targetN, pathLen, 0.3, directionMode, directionRad, parallelRigidity, flowRigidity, geoSensitivity, width, height) };
     }
 
     // renderMode === 'hatch' — dispatch on the selected Hatch Pattern.
@@ -1098,7 +1164,7 @@
     if (hatchPattern === 'crossgrid') {
       const targetN = Math.round(Number(hatchDensitySlider.value) * densityMult);
       const crossAngleRad = Number(crossAngleSlider.value) * Math.PI / 180;
-      return { kind: 'lines', items: generateCrossHatchGrid(darkness, weights, satWeights, cols, rows, targetN, strokeLen, lengthRand, directionMode, directionRad, parallelRigidity, flowRigidity, crossAngleRad, width, height) };
+      return { kind: 'lines', items: generateCrossHatchGrid(darkness, weights, satWeights, cols, rows, targetN, strokeLen, lengthRand, directionMode, directionRad, parallelRigidity, flowRigidity, geoSensitivity, crossAngleRad, width, height) };
     }
     if (hatchPattern === 'contour') {
       const levels = Number(contourLevelsSlider.value);
@@ -1115,7 +1181,7 @@
       const targetN = Math.round(Number(hatchDensitySlider.value) * densityMult);
       const amplitude = Number(zigzagAmpSlider.value);
       const frequency = Number(zigzagFreqSlider.value) / 100;
-      return { kind: 'lines', items: generateZigzagStrokes(darkness, weights, satWeights, cols, rows, targetN, strokeLen, lengthRand, directionMode, directionRad, parallelRigidity, flowRigidity, amplitude, frequency, width, height) };
+      return { kind: 'lines', items: generateZigzagStrokes(darkness, weights, satWeights, cols, rows, targetN, strokeLen, lengthRand, directionMode, directionRad, parallelRigidity, flowRigidity, geoSensitivity, amplitude, frequency, width, height) };
     }
     if (hatchPattern === 'truchet') {
       const tileSize = Number(tileSizeSlider.value);
@@ -1124,7 +1190,7 @@
 
     // default: straight
     const targetN = Math.round(Number(hatchDensitySlider.value) * densityMult);
-    return { kind: 'lines', items: generateHatchStrokes(darkness, weights, satWeights, cols, rows, targetN, strokeLen, lengthRand, directionMode, directionRad, parallelRigidity, flowRigidity, width, height) };
+    return { kind: 'lines', items: generateHatchStrokes(darkness, weights, satWeights, cols, rows, targetN, strokeLen, lengthRand, directionMode, directionRad, parallelRigidity, flowRigidity, geoSensitivity, width, height) };
   }
 
   // Draws one channel's render (continuous raster, line strokes, or
@@ -1347,15 +1413,18 @@
     dirParallelLinesBtn.classList.toggle('active', directionMode === 'parallelLines');
     dirOrganicBtn.classList.toggle('active', directionMode === 'organic');
     dirParallelBtn.classList.toggle('active', directionMode === 'parallel');
+    dirAdaptiveBtn.classList.toggle('active', directionMode === 'adaptive');
     directionAngleCtrl.classList.toggle('hidden', directionMode !== 'fixed' && directionMode !== 'parallelLines');
     parallelRigidityCtrl.classList.toggle('hidden', directionMode !== 'parallelLines' && directionMode !== 'parallel');
-    flowRigidityCtrl.classList.toggle('hidden', directionMode !== 'organic' && directionMode !== 'parallel');
+    flowRigidityCtrl.classList.toggle('hidden', directionMode !== 'organic' && directionMode !== 'parallel' && directionMode !== 'adaptive');
+    geoSensitivityCtrl.classList.toggle('hidden', directionMode !== 'adaptive');
     scheduleRender();
   }
   dirFixedBtn.addEventListener('click', () => setDirectionMode('fixed'));
   dirParallelLinesBtn.addEventListener('click', () => setDirectionMode('parallelLines'));
   dirOrganicBtn.addEventListener('click', () => setDirectionMode('organic'));
   dirParallelBtn.addEventListener('click', () => setDirectionMode('parallel'));
+  dirAdaptiveBtn.addEventListener('click', () => setDirectionMode('adaptive'));
   setDirectionMode('fixed');
 
   function updateLabels() {
@@ -1364,6 +1433,7 @@
     directionVal.textContent = Number(directionSlider.value) + '°';
     parallelRigidityVal.textContent = Number(parallelRigiditySlider.value) + '%';
     flowRigidityVal.textContent = Number(flowRigiditySlider.value);
+    geoSensitivityVal.textContent = Number(geoSensitivitySlider.value) + '%';
     strokeLenVal.textContent = Number(strokeLenSlider.value) + 'px';
     lengthRandVal.textContent = Number(lengthRandSlider.value) + '%';
     contrastVal.textContent = (Number(contrastSlider.value) / 100).toFixed(2) + '×';
@@ -1386,7 +1456,7 @@
   }
 
   const allSliders = [
-    densitySlider, hatchDensitySlider, directionSlider, parallelRigiditySlider, flowRigiditySlider,
+    densitySlider, hatchDensitySlider, directionSlider, parallelRigiditySlider, flowRigiditySlider, geoSensitivitySlider,
     strokeLenSlider, lengthRandSlider, contrastSlider, weightSlider, microprintDensitySlider,
     microprintLengthSlider, charSizeSlider, charSpacingSlider,
     crossAngleSlider, contourLevelsSlider, stippleDensitySlider, dotSizeSlider, relaxationSlider,

@@ -175,8 +175,9 @@
           <button type="button" id="dir-parallel-lines-btn" class="mode-btn">Parallel Lines</button>
           <button type="button" id="dir-organic-btn" class="mode-btn">Organic Flow</button>
           <button type="button" id="dir-parallel-btn" class="mode-btn">Parallel Flow</button>
+          <button type="button" id="dir-adaptive-btn" class="mode-btn">Adaptive</button>
         </div>
-        <div class="hint">Fixed/Organic bend toward the photo's edges (Hatch also crosshatches dark areas with these two — Microprint never crosshatches, to keep the text legible). Parallel Lines/Parallel Flow can be locked rigid. Each channel's angle is offset by the classic C/M/Y/K screen angles (15&deg;/75&deg;/0&deg;/45&deg;) so the four plates don't moir&eacute; against each other when combined.</div>
+        <div class="hint">Fixed/Organic bend toward the photo's edges (Hatch also crosshatches dark areas with these two — Microprint never crosshatches, to keep the text legible). Parallel Lines/Parallel Flow can be locked rigid. Adaptive reads the photo's own structure: strong, consistent edges (buildings, pathways) get straight strokes aligned to that edge, while turbulent, low-coherence areas (foliage, water) fall back to the messy Organic flow field. Each channel's angle is offset by the classic C/M/Y/K screen angles (15&deg;/75&deg;/0&deg;/45&deg;) so the four plates don't moir&eacute; against each other when combined.</div>
       </div>
 
       <div class="ctrl" id="direction-angle-ctrl">
@@ -192,6 +193,12 @@
       <div class="ctrl hidden" id="flow-rigidity-ctrl">
         <label>Flow Rigidity <b id="flow-rigidity-val"></b></label>
         <input type="range" id="flow-rigidity-slider" min="4" max="60" value="18">
+      </div>
+
+      <div class="ctrl hidden" id="geo-sensitivity-ctrl">
+        <label>Geometric Sensitivity <b id="geo-sensitivity-val"></b></label>
+        <input type="range" id="geo-sensitivity-slider" min="0" max="100" value="50">
+        <div class="hint">Higher values classify more of the image as "geometric" (straight strokes); lower values keep more of it in the messy Organic flow.</div>
       </div>
     </div>
 
