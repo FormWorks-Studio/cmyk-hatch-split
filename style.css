@@ -14,17 +14,24 @@
 
 * { box-sizing: border-box; }
 
+html, body { height: 100%; }
+
 body {
   margin: 0;
-  padding: 24px 16px 64px;
+  padding: 10px 14px;
   background: var(--bg);
   color: var(--text);
   font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
 }
 
-header { text-align: center; margin-bottom: 24px; }
-header h1 { margin: 0 0 6px; font-size: 28px; }
-.subtitle { margin: 0 auto; max-width: 640px; color: var(--muted); font-size: 14px; }
+header { text-align: center; margin-bottom: 8px; flex: none; }
+header h1 { margin: 0 0 2px; font-size: 19px; }
+.subtitle { margin: 0 auto; max-width: 640px; color: var(--muted); font-size: 11.5px; }
+
+#drop-zone, #crop-wrap { flex: none; }
 
 #drop-zone {
   max-width: 480px;
@@ -91,74 +98,126 @@ button:disabled {
   margin-top: 16px;
 }
 
+/* ── Workspace: everything visible at once, no page scroll ──
+   #workspace splits into photos (#top-row) | channels+controls
+   (#channels, itself a nested 2-col grid). Each column stretches to
+   the full viewport-derived height and scales its own contents down
+   via object-fit/flex rather than growing past it. #render-controls
+   keeps overflow-y:auto as a safety valve for unusually short screens
+   only — it isn't meant to be the normal experience. */
+#workspace {
+  display: grid;
+  grid-template-columns: minmax(230px, 0.85fr) minmax(680px, 2.4fr);
+  grid-template-rows: 1fr;
+  gap: 14px;
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  max-width: 1900px;
+  margin: 0 auto;
+}
+
 #top-row {
   display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  align-items: start;
-  gap: 24px;
-  max-width: 1200px;
-  width: 100%;
-  margin: 0 auto 32px;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 0;
 }
 
 #original-wrap,
 #combined-wrap {
   flex: 1 1 0;
-  min-width: 320px;
-  max-width: 590px;
+  min-height: 0;
   margin: 0;
   text-align: center;
+  display: flex;
+  flex-direction: column;
 }
-#original-wrap h2 { font-size: 16px; color: var(--muted); margin: 0 0 10px; }
+#original-wrap h2,
+#combined-wrap h2 { flex: none; font-size: 13px; color: var(--muted); margin: 0 0 6px; }
+
+#original-canvas,
+#combined-canvas {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+#combined-wrap #combined-controls { flex: none; }
 
 #channels {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 20px;
-  max-width: 1200px;
-  margin: 0 auto;
+  grid-template-columns: minmax(280px, 1fr) minmax(380px, 1.5fr);
+  grid-template-rows: 1fr;
+  gap: 14px;
+  min-height: 0;
+  height: 100%;
+}
+
+#channel-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  gap: 12px;
+  min-height: 0;
+  height: 100%;
 }
 
 .channel-card {
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 12px;
-  padding: 16px;
+  padding: 10px;
   text-align: center;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
 }
-.channel-card h3 { margin: 0 0 12px; font-size: 16px; }
+.channel-card h3 { margin: 0 0 6px; font-size: 13px; flex: none; }
+.channel-card canvas {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
 
 .channel-density-row {
-  margin-top: 12px;
+  margin-top: 6px;
   text-align: left;
+  flex: none;
 }
 
 .channel-line-count {
-  margin-top: 6px;
-  font-size: 11px;
+  margin-top: 4px;
+  font-size: 10px;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
 
 .download-row {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   justify-content: center;
-  margin-top: 12px;
+  margin-top: 8px;
+  flex: none;
 }
-.download-row .download-btn { flex: 1; padding: 10px 8px; font-size: 12px; }
+.download-row .download-btn { flex: 1; padding: 6px 8px; font-size: 11px; }
 
 /* ── Render controls panel ─────────────────────────────────── */
 #render-controls {
-  grid-column: 1 / -1;
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 12px;
-  padding: 20px 22px;
+  padding: 14px 16px;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 12px;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .mode-toggle {
@@ -200,10 +259,10 @@ button:disabled {
 #line-shared-controls {
   display: flex;
   flex-wrap: wrap;
-  gap: 20px 28px;
+  gap: 10px 22px;
 }
 
-.ctrl { flex: 1 1 220px; min-width: 200px; }
+.ctrl { flex: 1 1 190px; min-width: 160px; }
 
 /* Lets a group of .ctrl blocks be shown/hidden together (per hatch pattern)
    without breaking out of #hatch-controls' own flex-wrap layout — the
@@ -213,11 +272,11 @@ button:disabled {
 .ctrl label {
   display: flex;
   justify-content: space-between;
-  font-size: 11.5px;
+  font-size: 10.5px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--muted);
-  margin-bottom: 8px;
+  margin-bottom: 5px;
 }
 .ctrl label b { color: var(--accent); font-weight: 600; font-variant-numeric: tabular-nums; }
 .ctrl input[type="range"] {
@@ -244,10 +303,10 @@ button:disabled {
   border: 2px solid var(--bg);
 }
 .ctrl .hint {
-  font-size: 11px;
+  font-size: 9.5px;
   color: var(--muted);
-  margin-top: 6px;
-  line-height: 1.5;
+  margin-top: 4px;
+  line-height: 1.35;
 }
 .ctrl.hidden { display: none; }
 
@@ -449,11 +508,54 @@ canvas {
   margin-top: 12px;
 }
 
-@media (max-width: 700px) {
-  .ctrl { flex: 1 1 100%; }
+/* Below this width there isn't room for the fixed-height 3-column
+   dashboard, so fall back to the original stacked, scrollable layout. */
+@media (max-width: 900px) {
+  body { display: block; min-height: 0; padding: 16px; }
+  header { margin-bottom: 24px; }
+  header h1 { font-size: 28px; }
+  .subtitle { font-size: 14px; }
+
+  #workspace {
+    display: block;
+    max-width: 700px;
+    margin: 0 auto;
+  }
+
+  #top-row {
+    flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 24px;
+    margin-bottom: 32px;
+  }
   #original-wrap,
   #combined-wrap {
-    flex: 1 1 100%;
+    flex: 1 1 320px;
     max-width: 480px;
   }
+  #original-wrap h2, #combined-wrap h2 { font-size: 16px; margin-bottom: 10px; }
+  #original-canvas, #combined-canvas { height: auto; }
+
+  #channels { display: block; }
+  #channel-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    grid-template-rows: none;
+    height: auto;
+    margin-bottom: 20px;
+  }
+  .channel-card { overflow: visible; }
+  .channel-card canvas { height: auto; }
+  .channel-card h3 { font-size: 16px; margin-bottom: 12px; }
+
+  #render-controls {
+    overflow: visible;
+    padding: 20px 22px;
+    gap: 20px;
+  }
+
+  .ctrl { flex: 1 1 100%; }
+  .ctrl label { font-size: 11.5px; margin-bottom: 8px; }
+  .ctrl .hint { font-size: 11px; line-height: 1.5; margin-top: 6px; }
 }
