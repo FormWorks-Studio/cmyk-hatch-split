@@ -252,6 +252,12 @@ button:disabled {
   flex: none;
 }
 
+#choose-btn-compact {
+  align-self: flex-start;
+  padding: 7px 14px;
+  font-size: 12.5px;
+}
+
 #single-controls,
 #hatch-controls,
 #flow-direction-controls,

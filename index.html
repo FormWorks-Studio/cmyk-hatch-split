@@ -9,7 +9,7 @@
 <script src="https://cdn.jsdelivr.net/npm/d3-delaunay@6"></script>
 </head>
 <body>
-<header>
+<header id="page-header">
   <h1>CMYK Hatch Split</h1>
   <p class="subtitle">Upload a photo to split it into Cyan, Magenta, Yellow and Key (black) plates, each shaded with hand-hatched or scribbled line work instead of dots.</p>
 </header>
@@ -131,6 +131,8 @@
   </div>
 
   <div id="render-controls">
+    <button type="button" id="choose-btn-compact" class="secondary">Choose a photo</button>
+
     <div class="ctrl" id="output-size-ctrl">
       <label>Output Size</label>
       <div id="output-size-row">

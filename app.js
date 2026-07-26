@@ -24,7 +24,9 @@
   // ── DOM refs ──────────────────────────────────────────────
   const fileInput = document.getElementById('file-input');
   const chooseBtn = document.getElementById('choose-btn');
+  const chooseBtnCompact = document.getElementById('choose-btn-compact');
   const dropZone = document.getElementById('drop-zone');
+  const pageHeader = document.getElementById('page-header');
   const cropper_wrap = document.getElementById('crop-wrap');
   const cropImage = document.getElementById('crop-image');
   const confirmCropBtn = document.getElementById('confirm-crop-btn');
@@ -232,6 +234,7 @@
 
   // ── Upload ────────────────────────────────────────────────
   chooseBtn.addEventListener('click', () => fileInput.click());
+  chooseBtnCompact.addEventListener('click', () => fileInput.click());
   fileInput.addEventListener('change', () => {
     const file = fileInput.files[0];
     fileInput.value = '';
@@ -334,6 +337,8 @@
     const octx = originalCanvas.getContext('2d');
     octx.drawImage(source, 0, 0, width, height);
     originalWrap.classList.remove('hidden');
+    pageHeader.classList.add('hidden');
+    dropZone.classList.add('hidden');
 
     recomputeChannelsFromOriginal();
     if (outputLockAspect.checked) syncOutputWidthFromHeight();
