@@ -5,6 +5,7 @@
   const CELL_SIZE = 3;       // density/gradient field sampling cell, in source pixels
   const HATCH_STEP = 2;      // px per integration step when tracing a stroke
   const CROSSHATCH_THRESHOLD = 0.6; // darkness (0-1) above which the crosshatch layer kicks in
+  const EXPORT_PNG_DPI = 300; // pixel density used to rasterize PNG exports at the requested physical size
 
   const SUPPORTED_EXTENSIONS = ['jpg', 'jpeg', 'png', 'heic', 'heif'];
   const SUPPORTED_MIME_TYPES = ['image/jpeg', 'image/png', 'image/heic', 'image/heif'];
@@ -29,6 +30,10 @@
   const originalCanvas = document.getElementById('original-canvas');
   const channelsSection = document.getElementById('channels');
   const status = document.getElementById('status');
+
+  const outputWidthInput = document.getElementById('output-width-input');
+  const outputHeightInput = document.getElementById('output-height-input');
+  const outputLockAspect = document.getElementById('output-lock-aspect');
 
   const modeButtons = document.querySelectorAll('.mode-btn[data-mode]');
   const singleControls = document.getElementById('single-controls');
@@ -161,6 +166,35 @@
     }, 120);
   }
 
+  // ── Output size (inches) — physical dimensions baked into exports ──
+  function getOutputWidthIn() {
+    const v = parseFloat(outputWidthInput.value);
+    return isFinite(v) && v > 0 ? v : 1;
+  }
+  function getOutputHeightIn() {
+    const v = parseFloat(outputHeightInput.value);
+    return isFinite(v) && v > 0 ? v : 1;
+  }
+  function syncOutputWidthFromHeight() {
+    if (!channelState) return;
+    const aspect = channelState.width / channelState.height;
+    outputWidthInput.value = round2(getOutputHeightIn() * aspect);
+  }
+  function syncOutputHeightFromWidth() {
+    if (!channelState) return;
+    const aspect = channelState.width / channelState.height;
+    outputHeightInput.value = round2(getOutputWidthIn() / aspect);
+  }
+  outputWidthInput.addEventListener('input', () => {
+    if (outputLockAspect.checked) syncOutputHeightFromWidth();
+  });
+  outputHeightInput.addEventListener('input', () => {
+    if (outputLockAspect.checked) syncOutputWidthFromHeight();
+  });
+  outputLockAspect.addEventListener('change', () => {
+    if (outputLockAspect.checked) syncOutputWidthFromHeight();
+  });
+
   // ── Upload ────────────────────────────────────────────────
   chooseBtn.addEventListener('click', () => fileInput.click());
   fileInput.addEventListener('change', () => {
@@ -267,6 +301,7 @@
     originalWrap.classList.remove('hidden');
 
     recomputeChannelsFromOriginal();
+    if (outputLockAspect.checked) syncOutputWidthFromHeight();
 
     channelsSection.classList.remove('hidden');
     combinedWrap.classList.remove('hidden');
@@ -800,65 +835,88 @@
     return generateHatchStrokes(darkness, weights, satWeights, cols, rows, targetN, strokeLen, lengthRand, directionMode, directionRad, parallelRigidity, flowRigidity, width, height);
   }
 
+  // Draws one channel's render (continuous raster, line strokes, or
+  // microprint text) into `canvas` at targetW×targetH. scaleX/scaleY map
+  // working-pixel coordinates to that target size — passed as (1, 1) for
+  // the on-screen preview, and as the physical-size ratio for PNG export,
+  // via a single canvas transform so line weight and font size scale
+  // along with the geometry automatically (mirrors how SVG's viewBox
+  // scaling keeps everything proportional).
+  function renderChannelToCanvas(canvas, key, strokes, targetW, targetH, scaleX, scaleY) {
+    canvas.width = targetW;
+    canvas.height = targetH;
+    const ctx = canvas.getContext('2d');
+
+    if (renderMode === 'continuous') {
+      const src = document.createElement('canvas');
+      src.width = channelState.width;
+      src.height = channelState.height;
+      src.getContext('2d').putImageData(renderContinuous(channelState[key], channelState.width, channelState.height), 0, 0);
+      ctx.drawImage(src, 0, 0, targetW, targetH);
+      return;
+    }
+
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, targetW, targetH);
+    ctx.save();
+    ctx.scale(scaleX, scaleY);
+
+    if (renderMode === 'microprint') {
+      const text = (microprintTextInput.value || '').trim();
+      const fontSizePx = Number(charSizeSlider.value);
+      const spacingMult = Number(charSpacingSlider.value) / 100;
+      ctx.fillStyle = '#000';
+      ctx.font = `${fontSizePx}px monospace`;
+      ctx.textBaseline = 'middle';
+      ctx.textAlign = 'center';
+      const charWidthCache = {};
+      for (const path of strokes) {
+        const placements = walkPathForText(path, text, spacingMult, charWidthCache, ctx);
+        for (const p of placements) {
+          ctx.save();
+          ctx.translate(p.x, p.y);
+          ctx.rotate(p.angle);
+          ctx.fillText(p.char, 0, 0);
+          ctx.restore();
+        }
+      }
+      ctx.restore();
+      return;
+    }
+
+    const weight = Number(weightSlider.value) / 10;
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    ctx.lineWidth = weight;
+    ctx.strokeStyle = '#000';
+    for (const s of strokes) {
+      if (s.length < 2) continue;
+      ctx.beginPath();
+      ctx.moveTo(s[0][0], s[0][1]);
+      for (let i = 1; i < s.length; i++) ctx.lineTo(s[i][0], s[i][1]);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
   function renderAllChannels() {
     if (!channelState) return;
     const { width, height } = channelState;
-    const weight = Number(weightSlider.value) / 10;
 
     CHANNEL_ORDER.forEach(key => {
       const canvas = channelCanvases[key];
-      canvas.width = width;
-      canvas.height = height;
-      const ctx = canvas.getContext('2d');
 
       if (renderMode === 'continuous') {
         channelStrokes[key] = [];
         updateChannelLineCount(key);
-        ctx.putImageData(renderContinuous(channelState[key], width, height), 0, 0);
+        renderChannelToCanvas(canvas, key, [], width, height, 1, 1);
         return;
       }
 
       const strokes = computeChannelStrokes(key);
       channelStrokes[key] = strokes;
       updateChannelLineCount(key);
-
-      ctx.clearRect(0, 0, width, height);
-      ctx.fillStyle = '#fff';
-      ctx.fillRect(0, 0, width, height);
-
-      if (renderMode === 'microprint') {
-        const text = (microprintTextInput.value || '').trim();
-        const fontSizePx = Number(charSizeSlider.value);
-        const spacingMult = Number(charSpacingSlider.value) / 100;
-        ctx.fillStyle = '#000';
-        ctx.font = `${fontSizePx}px monospace`;
-        ctx.textBaseline = 'middle';
-        ctx.textAlign = 'center';
-        const charWidthCache = {};
-        for (const path of strokes) {
-          const placements = walkPathForText(path, text, spacingMult, charWidthCache, ctx);
-          for (const p of placements) {
-            ctx.save();
-            ctx.translate(p.x, p.y);
-            ctx.rotate(p.angle);
-            ctx.fillText(p.char, 0, 0);
-            ctx.restore();
-          }
-        }
-        return;
-      }
-
-      ctx.lineJoin = 'round';
-      ctx.lineCap = 'round';
-      ctx.lineWidth = weight;
-      ctx.strokeStyle = '#000';
-      for (const s of strokes) {
-        if (s.length < 2) continue;
-        ctx.beginPath();
-        ctx.moveTo(s[0][0], s[0][1]);
-        for (let i = 1; i < s.length; i++) ctx.lineTo(s[i][0], s[i][1]);
-        ctx.stroke();
-      }
+      renderChannelToCanvas(canvas, key, strokes, width, height, 1, 1);
     });
 
     updateZoomImage();
@@ -1127,7 +1185,7 @@
 
   function round2(n) { return Math.round(n * 100) / 100; }
 
-  function buildLineSVG(strokes, width, height, weight) {
+  function buildLineSVG(strokes, width, height, weight, widthIn, heightIn) {
     let polylines = '';
     for (const s of strokes) {
       if (s.length < 2) continue;
@@ -1135,12 +1193,12 @@
       polylines += `<polyline points="${pts}"/>`;
     }
     return '<?xml version="1.0" encoding="UTF-8"?>\n' +
-      `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">` +
+      `<svg xmlns="http://www.w3.org/2000/svg" width="${round2(widthIn)}in" height="${round2(heightIn)}in" viewBox="0 0 ${width} ${height}">` +
       `<rect width="${width}" height="${height}" fill="#ffffff"/>` +
       `<g fill="none" stroke="#000000" stroke-width="${round2(weight)}" stroke-linecap="round" stroke-linejoin="round">${polylines}</g></svg>`;
   }
 
-  function buildMicroprintSVG(paths, text, fontSizePx, spacingMult, width, height) {
+  function buildMicroprintSVG(paths, text, fontSizePx, spacingMult, width, height, widthIn, heightIn) {
     const measureCanvas = document.createElement('canvas');
     const mctx = measureCanvas.getContext('2d');
     mctx.font = `${fontSizePx}px monospace`;
@@ -1155,14 +1213,14 @@
       }
     }
     return '<?xml version="1.0" encoding="UTF-8"?>\n' +
-      `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">` +
+      `<svg xmlns="http://www.w3.org/2000/svg" width="${round2(widthIn)}in" height="${round2(heightIn)}in" viewBox="0 0 ${width} ${height}">` +
       `<rect width="${width}" height="${height}" fill="#ffffff"/>` +
       `<g font-family="monospace" font-size="${fontSizePx}" fill="#000000" text-anchor="middle" dominant-baseline="middle">${textEls}</g></svg>`;
   }
 
   // DXF R12 (AC1009) — legacy POLYLINE/VERTEX/SEQEND entities, the most
   // universally compatible dialect for handing geometry to CAD/plotters.
-  function buildDXF(strokes, height) {
+  function buildDXF(strokes, height, scaleX, scaleY) {
     const L = [];
     const w = (code, val) => { L.push(String(code), String(val)); };
 
@@ -1189,8 +1247,8 @@
       for (const [x, y] of stroke) {
         w(0, 'VERTEX');
         w(8, '0');
-        w(10, x.toFixed(4));
-        w(20, (height - y).toFixed(4));
+        w(10, (x * scaleX).toFixed(4));
+        w(20, ((height - y) * scaleY).toFixed(4));
       }
       w(0, 'SEQEND');
     }
@@ -1216,25 +1274,31 @@
   });
 
   function downloadPNG(channel) {
-    const canvas = channelCanvases[channel];
+    if (!channelState) return;
+    const { width, height } = channelState;
+    const targetW = Math.max(1, Math.round(getOutputWidthIn() * EXPORT_PNG_DPI));
+    const targetH = Math.max(1, Math.round(getOutputHeightIn() * EXPORT_PNG_DPI));
+    const exportCanvas = document.createElement('canvas');
+    renderChannelToCanvas(exportCanvas, channel, channelStrokes[channel], targetW, targetH, targetW / width, targetH / height);
     const link = document.createElement('a');
     link.download = buildDownloadFilename(channel, 'png');
-    link.href = canvas.toDataURL('image/png');
+    link.href = exportCanvas.toDataURL('image/png');
     link.click();
   }
 
   function downloadSVG(channel) {
     if (!channelState || renderMode === 'continuous') return;
     const { width, height } = channelState;
+    const widthIn = getOutputWidthIn(), heightIn = getOutputHeightIn();
     let svg;
     if (renderMode === 'microprint') {
       const text = (microprintTextInput.value || '').trim();
       const fontSizePx = Number(charSizeSlider.value);
       const spacingMult = Number(charSpacingSlider.value) / 100;
-      svg = buildMicroprintSVG(channelStrokes[channel], text, fontSizePx, spacingMult, width, height);
+      svg = buildMicroprintSVG(channelStrokes[channel], text, fontSizePx, spacingMult, width, height, widthIn, heightIn);
     } else {
       const weight = Number(weightSlider.value) / 10;
-      svg = buildLineSVG(channelStrokes[channel], width, height, weight);
+      svg = buildLineSVG(channelStrokes[channel], width, height, weight, widthIn, heightIn);
     }
     const blob = new Blob([svg], { type: 'image/svg+xml' });
     const url = URL.createObjectURL(blob);
@@ -1247,8 +1311,10 @@
 
   function downloadDXF(channel) {
     if (!channelState || renderMode === 'continuous' || renderMode === 'microprint') return;
-    const { height } = channelState;
-    const dxf = buildDXF(channelStrokes[channel], height);
+    const { width, height } = channelState;
+    const scaleX = getOutputWidthIn() / width;
+    const scaleY = getOutputHeightIn() / height;
+    const dxf = buildDXF(channelStrokes[channel], height, scaleX, scaleY);
     const blob = new Blob([dxf], { type: 'application/dxf' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');

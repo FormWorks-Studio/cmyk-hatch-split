@@ -306,6 +306,25 @@ button:disabled {
   appearance: textfield;
 }
 
+#output-size-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 18px;
+}
+#output-size-row .value-input { width: 56px; }
+#output-lock-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--muted);
+  text-transform: none;
+  letter-spacing: normal;
+  cursor: pointer;
+}
+#output-lock-label input[type="checkbox"] { cursor: pointer; }
+
 #combined-wrap h2 { font-size: 16px; color: var(--muted); margin: 0 0 10px; }
 #combined-controls {
   display: flex;

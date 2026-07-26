@@ -70,6 +70,22 @@
 
 <section id="channels" class="hidden">
   <div id="render-controls">
+    <div class="ctrl" id="output-size-ctrl" style="flex-basis: 100%;">
+      <label>Output Size</label>
+      <div id="output-size-row">
+        <span class="value-unit-group">
+          <input type="number" class="value-input" id="output-width-input" min="0.1" step="0.1" value="20" inputmode="decimal">
+          <span class="unit">in W</span>
+        </span>
+        <span class="value-unit-group">
+          <input type="number" class="value-input" id="output-height-input" min="0.1" step="0.1" value="20" inputmode="decimal">
+          <span class="unit">in H</span>
+        </span>
+        <label id="output-lock-label"><input type="checkbox" id="output-lock-aspect" checked> Lock aspect ratio</label>
+      </div>
+      <div class="hint">Physical size baked into exported PNG (at 300 DPI), SVG, and DXF files. Doesn't affect the on-screen preview resolution.</div>
+    </div>
+
     <div class="ctrl">
       <label>Mode</label>
       <div class="mode-toggle" role="group" aria-label="Render style">
